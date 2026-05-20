@@ -131,6 +131,24 @@ const DEFAULT_CONSTANTS = [
     'M_PI' => 3.1415927,
 ];
 
+const OP_NAMES = [
+    0 => 'HALT', 1 => 'CONST', 2 => 'NULL', 3 => 'TRUE', 4 => 'FALSE',
+    5 => 'GET_GLOBAL', 6 => 'SET_GLOBAL', 7 => 'POP', 8 => 'DUP',
+    9 => 'ADD', 10 => 'SUB', 11 => 'MUL', 12 => 'DIV', 13 => 'MOD', 14 => 'NEG',
+    15 => 'EQ', 16 => 'NE', 17 => 'LT', 18 => 'LE', 19 => 'GT', 20 => 'GE',
+    21 => 'JMP', 22 => 'JMP_IF_FALSE', 23 => 'CALL_NATIVE',
+    24 => 'STRLEN', 25 => 'STR_INDEX', 26 => 'CONCAT',
+    27 => 'GET_LOCAL', 28 => 'SET_LOCAL', 29 => 'CALL', 30 => 'RET',
+];
+
+const NATIVE_NAMES = [
+    0 => 'print', 1 => 'sleep_ms', 2 => 'gpio_mode', 3 => 'gpio_write',
+    4 => 'millis', 5 => 'sin', 6 => 'cos', 7 => 'tan', 8 => 'sqrt', 9 => 'abs',
+    10 => 'chr', 11 => 'ord', 12 => 'bin2hex', 13 => 'led_write',
+    14 => 'i2c_init', 15 => 'i2c_write', 16 => 'i2c_read',
+    17 => 'i2c_write_read', 18 => 'i2c_scan',
+];
+
 final class Token {
     public function __construct(
         public string $kind,
@@ -1124,6 +1142,31 @@ final class Compiler {
         return $s . 'f';
     }
 
+
+    /** @return list<int> */
+    public function getCode(): array {
+        return $this->code;
+    }
+
+    /** @return list<ConstValue> */
+    public function getConsts(): array {
+        return $this->consts;
+    }
+
+    /** @return array<string,int> */
+    public function getGlobals(): array {
+        return $this->globals;
+    }
+
+    /** @return array<string,FunctionInfo> */
+    public function getFunctions(): array {
+        return $this->functions;
+    }
+
+    public function dumpOpcodes(): string {
+        return disassemble_code($this->code, $this->consts, $this->globals, $this->functions);
+    }
+
     private function cEscapeBytes(string $bytes): string {
         $out = [];
         $n = strlen($bytes);
@@ -1221,6 +1264,184 @@ if (!function_exists('array_any')) {
     }
 }
 
+
+function read_u8_from_code(array $code, int &$ip): int {
+    if ($ip >= count($code)) {
+        throw new CompileError('disassembler reached end of code');
+    }
+    return $code[$ip++] & 0xff;
+}
+
+function read_i16_from_code(array $code, int &$ip): int {
+    $lo = read_u8_from_code($code, $ip);
+    $hi = read_u8_from_code($code, $ip);
+    $v = $lo | ($hi << 8);
+    return ($v & 0x8000) ? ($v - 0x10000) : $v;
+}
+
+function format_bytes_for_dump(string $s): string {
+    $out = '';
+    for ($i = 0, $n = strlen($s); $i < $n; $i++) {
+        $b = ord($s[$i]);
+        if ($b === 0x0a) {
+            $out .= '\\n';
+        } elseif ($b === 0x0d) {
+            $out .= '\\r';
+        } elseif ($b === 0x09) {
+            $out .= '\\t';
+        } elseif ($b >= 0x20 && $b <= 0x7e && $b !== 0x22 && $b !== 0x5c) {
+            $out .= chr($b);
+        } else {
+            $out .= sprintf('\\x%02x', $b);
+        }
+    }
+    return $out;
+}
+
+function format_const_for_dump(ConstValue $c): string {
+    return match ($c->type) {
+        'null' => 'null',
+        'bool' => $c->value ? 'true' : 'false',
+        'int' => (string)$c->value,
+        'float' => sprintf('%.9g', (float)$c->value),
+        'string' => 'string[' . strlen($c->value) . '] "' . format_bytes_for_dump($c->value) . '"',
+        default => '<unknown const>',
+    };
+}
+
+/** @param list<int> $code @param list<ConstValue> $consts @param array<string,int> $globals */
+function disassemble_code(array $code, array $consts, array $globals, array $functions = []): string {
+    $globalNames = [];
+    foreach ($globals as $name => $slot) {
+        $globalNames[$slot] = '$' . $name;
+    }
+
+    $functionNames = [];
+    foreach ($functions as $name => $fn) {
+        $functionNames[$fn->id] = $name;
+    }
+
+    $lines = [];
+    $lines[] = '== PicoPHP opcode dump ==';
+    $lines[] = '';
+
+    if ($consts !== []) {
+        $lines[] = 'Constants:';
+        foreach ($consts as $i => $c) {
+            $lines[] = sprintf('  #%d = %s', $i, format_const_for_dump($c));
+        }
+        $lines[] = '';
+    }
+
+    if ($globals !== []) {
+        $lines[] = 'Globals:';
+        asort($globals);
+        foreach ($globals as $name => $slot) {
+            $lines[] = sprintf('  slot %d = $%s', $slot, $name);
+        }
+        $lines[] = '';
+    }
+
+    if ($functions !== []) {
+        $lines[] = 'Functions:';
+        $orderedFunctions = array_values($functions);
+        usort($orderedFunctions, fn(FunctionInfo $a, FunctionInfo $b): int => $a->id <=> $b->id);
+        foreach ($orderedFunctions as $fn) {
+            $params = implode(', ', array_map(fn(string $p): string => '$' . $p, $fn->params));
+            $lines[] = sprintf(
+                '  #%d = %s(%s), entry=%04d, locals=%d',
+                $fn->id,
+                $fn->name,
+                $params,
+                $fn->entry,
+                $fn->localCount
+            );
+        }
+        $lines[] = '';
+    }
+
+    $lines[] = 'Code:';
+    $ip = 0;
+    $n = count($code);
+
+    while ($ip < $n) {
+        $addr = $ip;
+        $op = read_u8_from_code($code, $ip);
+        $name = OP_NAMES[$op] ?? ('OP_' . $op);
+        $arg = '';
+
+        switch ($op) {
+            case Op::OP_HALT: case Op::OP_NULL: case Op::OP_TRUE: case Op::OP_FALSE:
+            case Op::OP_POP: case Op::OP_DUP:
+            case Op::OP_ADD: case Op::OP_SUB: case Op::OP_MUL: case Op::OP_DIV:
+            case Op::OP_MOD: case Op::OP_NEG:
+            case Op::OP_EQ: case Op::OP_NE: case Op::OP_LT: case Op::OP_LE:
+            case Op::OP_GT: case Op::OP_GE:
+            case Op::OP_STRLEN: case Op::OP_STR_INDEX: case Op::OP_CONCAT:
+            case 30:
+                break;
+
+            case Op::OP_CONST:
+                $id = read_u8_from_code($code, $ip);
+                $desc = isset($consts[$id]) ? format_const_for_dump($consts[$id]) : '<bad const>';
+                $arg = sprintf('#%d ; %s', $id, $desc);
+                break;
+
+            case Op::OP_GET_GLOBAL:
+            case Op::OP_SET_GLOBAL:
+                $slot = read_u8_from_code($code, $ip);
+                $arg = sprintf('%d ; %s', $slot, $globalNames[$slot] ?? ('global#' . $slot));
+                break;
+
+            case Op::OP_JMP:
+            case Op::OP_JMP_IF_FALSE:
+                $off = read_i16_from_code($code, $ip);
+                $arg = sprintf('%+d -> %04d', $off, $ip + $off);
+                break;
+
+            case Op::OP_CALL_NATIVE:
+                $id = read_u8_from_code($code, $ip);
+                $argc = read_u8_from_code($code, $ip);
+                $arg = sprintf('%s, argc=%d', NATIVE_NAMES[$id] ?? ('native#' . $id), $argc);
+                break;
+
+            case 27:
+            case 28:
+                $slot = read_u8_from_code($code, $ip);
+                $arg = sprintf('%d', $slot);
+                break;
+
+            case 29:
+                $fn = read_u8_from_code($code, $ip);
+                $argc = read_u8_from_code($code, $ip);
+                $fnName = $functionNames[$fn] ?? ('function#' . $fn);
+                $arg = sprintf('%s, argc=%d', $fnName, $argc);
+                break;
+
+            default:
+                $arg = '<unknown opcode; stopping>';
+                $lines[] = sprintf('  %04d: %-16s %s', $addr, $name, $arg);
+                break 2;
+        }
+
+        $lines[] = sprintf('  %04d: %-16s %s', $addr, $name, $arg);
+    }
+
+    $lines[] = '';
+    return implode("\n", $lines);
+}
+
+function compile_source_debug(string $src, string $symbolPrefix = 'picophp_program'): array {
+    $tokens = lex_source($src);
+    $program = (new Parser($tokens))->parse();
+    $compiler = new Compiler();
+    $compiler->compile($program);
+    return [
+        'header' => $compiler->emitCHeader($symbolPrefix),
+        'dump' => $compiler->dumpOpcodes(),
+    ];
+}
+
 function compile_source(string $src, string $symbolPrefix = 'picophp_program'): string {
     $tokens = lex_source($src);
     $program = (new Parser($tokens))->parse();
@@ -1255,11 +1476,14 @@ function main(array $argv): int {
     $symbolPrefix = 'picophp_program';
     $input = null;
     $useDemo = false;
+    $dumpOpcodes = false;
 
     for ($i = 1; $i < count($argv); $i++) {
         $arg = $argv[$i];
         if ($arg === '--demo') {
             $useDemo = true;
+        } elseif ($arg === '--dump-opcodes' || $arg === '--disasm') {
+            $dumpOpcodes = true;
         } elseif ($arg === '--symbol-prefix') {
             $i++;
             if ($i >= count($argv)) {
@@ -1270,7 +1494,7 @@ function main(array $argv): int {
         } elseif (str_starts_with($arg, '--symbol-prefix=')) {
             $symbolPrefix = substr($arg, strlen('--symbol-prefix='));
         } elseif ($arg === '-h' || $arg === '--help') {
-            fwrite(STDOUT, "Usage: php picophp_compile.php [--demo] [--symbol-prefix NAME] [input.pphp]\n");
+            fwrite(STDOUT, "Usage: php picophp_compile.php [--demo] [--dump-opcodes] [--symbol-prefix NAME] [input.pphp]\n");
             return 0;
         } elseif (str_starts_with($arg, '-')) {
             fwrite(STDERR, "unknown option: {$arg}\n");
@@ -1289,7 +1513,12 @@ function main(array $argv): int {
                 throw new PicoCompileError("failed to read input: {$input}");
             }
         }
-        fwrite(STDOUT, compile_source($src, $symbolPrefix));
+        if ($dumpOpcodes) {
+            $result = compile_source_debug($src, $symbolPrefix);
+            fwrite(STDOUT, $result['dump']);
+        } else {
+            fwrite(STDOUT, compile_source($src, $symbolPrefix));
+        }
         return 0;
     } catch (PicoCompileError $e) {
         fwrite(STDERR, "compile error: {$e->getMessage()}\n");
