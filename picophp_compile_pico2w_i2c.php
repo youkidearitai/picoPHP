@@ -77,6 +77,13 @@ final class Op {
     public const OP_SET_LOCAL = 28;
     public const OP_CALL = 29;
     public const OP_RET = 30;
+
+    public const OP_BIT_AND = 31;
+    public const OP_BIT_OR = 32;
+    public const OP_BIT_XOR = 33;
+    public const OP_BIT_NOT = 34;
+    public const OP_SHL = 35;
+    public const OP_SHR = 36;
 }
 
 final class NativeId {
@@ -139,6 +146,8 @@ const OP_NAMES = [
     21 => 'JMP', 22 => 'JMP_IF_FALSE', 23 => 'CALL_NATIVE',
     24 => 'STRLEN', 25 => 'STR_INDEX', 26 => 'CONCAT',
     27 => 'GET_LOCAL', 28 => 'SET_LOCAL', 29 => 'CALL', 30 => 'RET',
+    31 => 'BIT_AND', 32 => 'BIT_OR', 33 => 'BIT_XOR', 34 => 'BIT_NOT',
+    35 => 'SHL', 36 => 'SHR',
 ];
 
 const NATIVE_NAMES = [
@@ -268,9 +277,11 @@ function lex_source(string $src): array {
         '!=' => true,
         '<=' => true,
         '>=' => true,
+        '<<' => true,
+        '>>' => true,
     ];
 
-    $oneChar = '{}()[];,=+-*/%.<>';
+    $oneChar = '{}()[];,=+-*/%.<>&|^~';
 
     while ($i < $len) {
         $ch = $src[$i];
@@ -615,8 +626,40 @@ final class Parser {
     }
 
     private function parseComparison(): Expr {
-        $expr = $this->parseTerm();
+        $expr = $this->parseBitOr();
         while (($t = $this->match('<', '<=', '>', '>=')) !== null) {
+            $expr = new BinaryExpr($t->kind, $expr, $this->parseBitOr());
+        }
+        return $expr;
+    }
+
+    private function parseBitOr(): Expr {
+        $expr = $this->parseBitXor();
+        while (($t = $this->match('|')) !== null) {
+            $expr = new BinaryExpr($t->kind, $expr, $this->parseBitXor());
+        }
+        return $expr;
+    }
+
+    private function parseBitXor(): Expr {
+        $expr = $this->parseBitAnd();
+        while (($t = $this->match('^')) !== null) {
+            $expr = new BinaryExpr($t->kind, $expr, $this->parseBitAnd());
+        }
+        return $expr;
+    }
+
+    private function parseBitAnd(): Expr {
+        $expr = $this->parseShift();
+        while (($t = $this->match('&')) !== null) {
+            $expr = new BinaryExpr($t->kind, $expr, $this->parseShift());
+        }
+        return $expr;
+    }
+
+    private function parseShift(): Expr {
+        $expr = $this->parseTerm();
+        while (($t = $this->match('<<', '>>')) !== null) {
             $expr = new BinaryExpr($t->kind, $expr, $this->parseTerm());
         }
         return $expr;
@@ -640,6 +683,9 @@ final class Parser {
 
     private function parseUnary(): Expr {
         if (($t = $this->match('-')) !== null) {
+            return new UnaryExpr($t->kind, $this->parseUnary());
+        }
+        if (($t = $this->match('~')) !== null) {
             return new UnaryExpr($t->kind, $this->parseUnary());
         }
         return $this->parsePostfix();
@@ -1378,6 +1424,8 @@ function disassemble_code(array $code, array $consts, array $globals, array $fun
             case Op::OP_EQ: case Op::OP_NE: case Op::OP_LT: case Op::OP_LE:
             case Op::OP_GT: case Op::OP_GE:
             case Op::OP_STRLEN: case Op::OP_STR_INDEX: case Op::OP_CONCAT:
+            case Op::OP_BIT_AND: case Op::OP_BIT_OR: case Op::OP_BIT_XOR:
+            case Op::OP_BIT_NOT: case Op::OP_SHL: case Op::OP_SHR:
             case 30:
                 break;
 
@@ -1442,6 +1490,119 @@ function compile_source_debug(string $src, string $symbolPrefix = 'picophp_progr
     ];
 }
 
+
+function strip_php_open_tag_for_require(string $src): string {
+    $src = preg_replace('/^\xEF\xBB\xBF/', '', $src) ?? $src;
+    $ltrim = ltrim($src);
+    $removed = strlen($src) - strlen($ltrim);
+
+    if (str_starts_with($ltrim, "<?php")) {
+        return str_repeat("\n", substr_count(substr($src, 0, $removed), "\n")) . substr($ltrim, 5);
+    }
+
+    if (str_starts_with($ltrim, "<?")) {
+        return str_repeat("\n", substr_count(substr($src, 0, $removed), "\n")) . substr($ltrim, 2);
+    }
+
+    return $src;
+}
+
+function resolve_require_path(string $baseDir, string $required): string {
+    if ($required === '') {
+        throw new CompileError("empty require path");
+    }
+
+    if ($required[0] === '/' || preg_match('/^[A-Za-z]:[\\\\\\/]/', $required)) {
+        return $required;
+    }
+
+    return $baseDir . DIRECTORY_SEPARATOR . $required;
+}
+
+/**
+ * @param array<string,bool> $seen
+ */
+function preprocess_require_file(string $path, array &$seen, bool $once = true, array $stack = []): string {
+    $real = realpath($path);
+    if ($real === false) {
+        $from = $stack === [] ? '' : ' from ' . end($stack);
+        throw new CompileError("require file not found: {$path}{$from}");
+    }
+
+    if ($once && isset($seen[$real])) {
+        return "\n/* require_once skipped: {$real} */\n";
+    }
+
+    if (in_array($real, $stack, true)) {
+        $chain = implode(" -> ", array_merge($stack, [$real]));
+        throw new CompileError("recursive require detected: {$chain}");
+    }
+
+    $seen[$real] = true;
+    $dir = dirname($real);
+
+    $src = file_get_contents($real);
+    if ($src === false) {
+        throw new CompileError("failed to read require file: {$real}");
+    }
+
+    $src = strip_php_open_tag_for_require($src);
+    $lines = preg_split('/\R/', $src);
+    if ($lines === false) {
+        throw new CompileError("failed to split source: {$real}");
+    }
+
+    $out = "\n/* begin require: {$real} */\n";
+
+    foreach ($lines as $lineNo => $line) {
+        if (preg_match('/^\s*require_once\s+([\'"])([^\'"]+)\1\s*;\s*(?:\/\/.*)?$/', $line, $m)) {
+            $child = resolve_require_path($dir, $m[2]);
+            $out .= preprocess_require_file($child, $seen, true, array_merge($stack, [$real]));
+            continue;
+        }
+
+        if (preg_match('/^\s*require\s+([\'"])([^\'"]+)\1\s*;\s*(?:\/\/.*)?$/', $line, $m)) {
+            $child = resolve_require_path($dir, $m[2]);
+            $out .= preprocess_require_file($child, $seen, false, array_merge($stack, [$real]));
+            continue;
+        }
+
+        if (preg_match('/^\s*(require|require_once)\b/', $line)) {
+            throw new CompileError(
+                "unsupported require syntax at {$real}:" . ($lineNo + 1) .
+                " ; use require_once \"path.pphp\";"
+            );
+        }
+
+        $out .= $line . "\n";
+    }
+
+    $out .= "/* end require: {$real} */\n";
+    return $out;
+}
+
+function compile_file(string $path, string $symbolPrefix = 'picophp_program'): string {
+    $real = realpath($path);
+    if ($real === false) {
+        throw new CompileError("input file not found: {$path}");
+    }
+
+    $seen = [];
+    $src = preprocess_require_file($real, $seen, false);
+    return compile_source($src, $symbolPrefix);
+}
+
+function compile_file_debug(string $path, string $symbolPrefix = 'picophp_program'): array {
+    $real = realpath($path);
+    if ($real === false) {
+        throw new CompileError("input file not found: {$path}");
+    }
+
+    $seen = [];
+    $src = preprocess_require_file($real, $seen, false);
+    return compile_source_debug($src, $symbolPrefix);
+}
+
 function compile_source(string $src, string $symbolPrefix = 'picophp_program'): string {
     $tokens = lex_source($src);
     $program = (new Parser($tokens))->parse();
@@ -1494,7 +1655,7 @@ function main(array $argv): int {
         } elseif (str_starts_with($arg, '--symbol-prefix=')) {
             $symbolPrefix = substr($arg, strlen('--symbol-prefix='));
         } elseif ($arg === '-h' || $arg === '--help') {
-            fwrite(STDOUT, "Usage: php picophp_compile.php [--demo] [--dump-opcodes] [--symbol-prefix NAME] [input.pphp]\n");
+            fwrite(STDOUT, "Usage: php picophp_compile_debug.php [--demo] [--dump-opcodes] [--symbol-prefix NAME] [input.pphp]\n");
             return 0;
         } elseif (str_starts_with($arg, '-')) {
             fwrite(STDERR, "unknown option: {$arg}\n");
@@ -1505,14 +1666,25 @@ function main(array $argv): int {
     }
 
     try {
-        if ($useDemo || $input === null) {
+        if ($input !== null && !$useDemo) {
+            if ($dumpOpcodes) {
+                $result = compile_file_debug($input, $symbolPrefix);
+                fwrite(STDOUT, $result['dump']);
+            } else {
+                fwrite(STDOUT, compile_file($input, $symbolPrefix));
+            }
+            return 0;
+        }
+
+        if ($useDemo) {
             $src = DEMO_SOURCE;
         } else {
-            $src = file_get_contents($input);
+            $src = stream_get_contents(STDIN);
             if ($src === false) {
-                throw new PicoCompileError("failed to read input: {$input}");
+                throw new PicoCompileError("failed to read stdin");
             }
         }
+
         if ($dumpOpcodes) {
             $result = compile_source_debug($src, $symbolPrefix);
             fwrite(STDOUT, $result['dump']);
