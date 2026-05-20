@@ -1129,6 +1129,12 @@ final class Compiler {
                 '>' => Op::OP_GT,
                 '>=' => Op::OP_GE,
                 '.' => Op::OP_CONCAT,
+                '&' => Op::OP_BIT_AND,
+                '|' => Op::OP_BIT_OR,
+                '^' => Op::OP_BIT_XOR,
+                '~' => Op::OP_BIT_NOT,
+                '>>' => Op::OP_SHR,
+                '<<' => Op::OP_SHL,
                 default => throw new PicoCompileError("unsupported binary operator {$expr->op}"),
             };
             $this->emit($op);

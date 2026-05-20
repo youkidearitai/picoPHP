@@ -25,9 +25,8 @@ function ssd1306_init($bus, $addr) {
 }
 
 function ssd1306_set_pos($bus, $addr, $page, $col) {
-    // Avoid bitwise ops so this library also works on the pre-bitwise VM/compiler.
-    $high = $col / 16;
-    $low = $col - ($high * 16);
+    $low = $col & 15;
+    $high = ($col >> 4) & 15;
 
     ssd1306_cmd($bus, $addr, chr(176 + $page) . chr($low) . chr(16 + $high));
 }
