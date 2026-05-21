@@ -6,11 +6,11 @@ const SSD1306_CTRL_CMD = 0;
 const SSD1306_CTRL_DATA = 64;
 
 function ssd1306_cmd($bus, $addr, $cmds) {
-    i2c_write($bus, $addr, chr(SSD1306_CTRL_CMD) . $cmds);
+    i2c_write_ctrl($bus, $addr, SSD1306_CTRL_CMD, $cmds);
 }
 
 function ssd1306_data($bus, $addr, $data) {
-    i2c_write($bus, $addr, chr(SSD1306_CTRL_DATA) . $data);
+    i2c_write_ctrl($bus, $addr, SSD1306_CTRL_DATA, $data);
 }
 
 function ssd1306_init($bus, $addr) {
@@ -49,10 +49,32 @@ function ssd1306_clear_page($bus, $addr) {
 }
 
 function ssd1306_clear($bus, $addr) {
+    ssd1306_clear_chunked($bus, $addr);
+}
+
+
+function ssd1306_clear_page_chunked($bus, $addr, $page) {
+    $z = ssd1306_zero16();
+
+    ssd1306_set_pos($bus, $addr, $page, 0);
+
+    // 128 columns = 16 bytes * 8 writes.
+    // This avoids 128-byte I2C transfer and avoids building a 128-byte temporary string.
+    ssd1306_data($bus, $addr, $z);
+    ssd1306_data($bus, $addr, $z);
+    ssd1306_data($bus, $addr, $z);
+    ssd1306_data($bus, $addr, $z);
+    ssd1306_data($bus, $addr, $z);
+    ssd1306_data($bus, $addr, $z);
+    ssd1306_data($bus, $addr, $z);
+    ssd1306_data($bus, $addr, $z);
+}
+
+function ssd1306_clear_chunked($bus, $addr) {
     $page = 0;
+
     while ($page < 8) {
-        ssd1306_set_pos($bus, $addr, $page, 0);
-        ssd1306_clear_page($bus, $addr);
+        ssd1306_clear_page_chunked($bus, $addr, $page);
         $page = $page + 1;
     }
 }

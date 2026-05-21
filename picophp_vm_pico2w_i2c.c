@@ -134,6 +134,13 @@ typedef enum {
     OP_SET_LOCAL = 28,
     OP_CALL = 29,
     OP_RET = 30,
+
+    OP_BIT_AND = 31,
+    OP_BIT_OR = 32,
+    OP_BIT_XOR = 33,
+    OP_BIT_NOT = 34,
+    OP_SHL = 35,
+    OP_SHR = 36,
 } OpCode;
 
 typedef enum {
@@ -156,6 +163,7 @@ typedef enum {
     NATIVE_I2C_READ = 16,
     NATIVE_I2C_WRITE_READ = 17,
     NATIVE_I2C_SCAN = 18,
+    NATIVE_I2C_WRITE_CTRL = 19,
 } NativeId;
 
 typedef enum {
@@ -411,6 +419,33 @@ static bool numeric_binary(Vm *vm, Value a, Value b, OpCode op, Value *out) {
     }
 }
 
+
+static bool bitwise_binary(Vm *vm, Value a, Value b, OpCode op, Value *out) {
+    int32_t x = value_as_int(a);
+    int32_t y = value_as_int(b);
+
+    switch (op) {
+        case OP_BIT_AND:
+            *out = v_int(x & y);
+            return true;
+        case OP_BIT_OR:
+            *out = v_int(x | y);
+            return true;
+        case OP_BIT_XOR:
+            *out = v_int(x ^ y);
+            return true;
+        case OP_SHL:
+            *out = v_int((int32_t)((uint32_t)x << (y & 31)));
+            return true;
+        case OP_SHR:
+            *out = v_int(x >> (y & 31));
+            return true;
+        default:
+            vm->status = VM_ERR_TYPE;
+            return false;
+    }
+}
+
 static bool numeric_compare(Vm *vm, Value a, Value b, OpCode op, Value *out) {
     (void)vm;
     float x = value_as_float(a);
@@ -609,6 +644,51 @@ static bool native_i2c_write(Vm *vm, Value bus, Value addr, Value data, Value *r
         (long)value_as_int(addr),
         data.as.s.len);
     *ret = v_int((int32_t)data.as.s.len);
+#endif
+
+    return true;
+}
+
+
+static bool native_i2c_write_ctrl(Vm *vm, Value bus, Value addr, Value ctrl, Value data, Value *ret) {
+    if (data.type != VAL_STRING) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+#ifdef PICOPHP_ON_PICO
+    if (data.as.s.len > 255) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    uint8_t buf[256];
+    buf[0] = (uint8_t)value_as_int(ctrl);
+    if (data.as.s.len > 0) {
+        memcpy(buf + 1, data.as.s.data, data.as.s.len);
+    }
+
+    int r = i2c_write_blocking(
+        native_get_i2c_bus(value_as_int(bus)),
+        (uint8_t)value_as_int(addr),
+        buf,
+        (size_t)data.as.s.len + 1,
+        false
+    );
+
+    if (r < 0) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    *ret = v_int(r);
+#else
+    printf("[i2c_write_ctrl bus=%ld addr=0x%02lx ctrl=0x%02lx len=%u]\n",
+        (long)value_as_int(bus),
+        (long)value_as_int(addr),
+        (long)value_as_int(ctrl),
+        data.as.s.len);
+    *ret = v_int((int32_t)data.as.s.len + 1);
 #endif
 
     return true;
@@ -882,6 +962,13 @@ static bool call_native(Vm *vm, uint8_t id, uint8_t argc) {
             native_i2c_scan(value_as_int(args[0]));
             break;
 
+        case NATIVE_I2C_WRITE_CTRL:
+            if (argc != 4) goto bad_arity;
+            if (!native_i2c_write_ctrl(vm, args[0], args[1], args[2], args[3], &ret)) {
+                return false;
+            }
+            break;
+
         default:
             vm->status = VM_ERR_BAD_NATIVE;
             return false;
@@ -981,6 +1068,25 @@ static VmStatus vm_run(Vm *vm) {
                 } else {
                     if (!push(vm, v_int(-value_as_int(a)))) return vm->status;
                 }
+                break;
+            }
+
+            case OP_BIT_NOT: {
+                Value a;
+                if (!pop(vm, &a)) return vm->status;
+                if (!push(vm, v_int(~value_as_int(a)))) return vm->status;
+                break;
+            }
+
+            case OP_BIT_AND:
+            case OP_BIT_OR:
+            case OP_BIT_XOR:
+            case OP_SHL:
+            case OP_SHR: {
+                Value b, a, r;
+                if (!pop(vm, &b) || !pop(vm, &a)) return vm->status;
+                if (!bitwise_binary(vm, a, b, op, &r)) return vm->status;
+                if (!push(vm, r)) return vm->status;
                 break;
             }
 

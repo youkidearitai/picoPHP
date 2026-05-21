@@ -106,6 +106,7 @@ final class NativeId {
     public const NATIVE_I2C_READ = 16;
     public const NATIVE_I2C_WRITE_READ = 17;
     public const NATIVE_I2C_SCAN = 18;
+    public const NATIVE_I2C_WRITE_CTRL = 19;
 }
 
 const NATIVE_IDS = [
@@ -128,6 +129,7 @@ const NATIVE_IDS = [
     'i2c_read' => NativeId::NATIVE_I2C_READ,
     'i2c_write_read' => NativeId::NATIVE_I2C_WRITE_READ,
     'i2c_scan' => NativeId::NATIVE_I2C_SCAN,
+    'i2c_write_ctrl' => NativeId::NATIVE_I2C_WRITE_CTRL,
 ];
 
 const DEFAULT_CONSTANTS = [
@@ -155,7 +157,7 @@ const NATIVE_NAMES = [
     4 => 'millis', 5 => 'sin', 6 => 'cos', 7 => 'tan', 8 => 'sqrt', 9 => 'abs',
     10 => 'chr', 11 => 'ord', 12 => 'bin2hex', 13 => 'led_write',
     14 => 'i2c_init', 15 => 'i2c_write', 16 => 'i2c_read',
-    17 => 'i2c_write_read', 18 => 'i2c_scan',
+    17 => 'i2c_write_read', 18 => 'i2c_scan', 19 => 'i2c_write_ctrl',
 ];
 
 final class Token {
@@ -1109,6 +1111,10 @@ final class Compiler {
                 $this->emit(Op::OP_NEG);
                 return;
             }
+            if ($expr->op === '~') {
+                $this->emit(Op::OP_BIT_NOT);
+                return;
+            }
             throw new PicoCompileError("unsupported unary operator {$expr->op}");
         }
 
@@ -1131,10 +1137,10 @@ final class Compiler {
                 '.' => Op::OP_CONCAT,
                 '&' => Op::OP_BIT_AND,
                 '|' => Op::OP_BIT_OR,
-                '^' => Op::OP_BIT_XOR,
                 '~' => Op::OP_BIT_NOT,
-                '>>' => Op::OP_SHR,
+                '^' => Op::OP_BIT_XOR,
                 '<<' => Op::OP_SHL,
+                '>>' => Op::OP_SHR,
                 default => throw new PicoCompileError("unsupported binary operator {$expr->op}"),
             };
             $this->emit($op);

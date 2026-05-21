@@ -7,18 +7,20 @@ const I2C_SCL = 5;
 const I2C_BAUD = 100000;
 const OLED_ADDR = 60;
 
+print("boot\n");
+
 i2c_init(I2C_BUS, I2C_SDA, I2C_SCL, I2C_BAUD);
+print("after i2c_init\n");
 
-print("ssd1306 init\n");
 ssd1306_init(I2C_BUS, OLED_ADDR);
+print("after ssd1306_init\n");
 
-print("clear\n");
-ssd1306_clear(I2C_BUS, OLED_ADDR);
+// Clear all pages, but in 16-byte chunks.
+ssd1306_clear_chunked(I2C_BUS, OLED_ADDR);
+print("after chunked full clear\n");
 
-print("draw\n");
 ssd1306_text_center(I2C_BUS, OLED_ADDR, "Hello World");
-
-print("done\n");
+print("after draw\n");
 
 while (true) {
     led_write(HIGH);

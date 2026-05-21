@@ -16,8 +16,8 @@
  *   php picophp_build.php blink.pphp --pico
  *
  * Files expected in the same directory:
- *   picophp_compile_require.php
- *   picophp_vm_pico2w_i2c_bitwise.c
+ *   picophp_compile_require_bitwise_ctrl.php
+ *   picophp_vm_pico2w_i2c_bitwise_ctrl.c
  */
 
 declare(strict_types=1);
@@ -122,7 +122,7 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 add_executable(picophp_app
-    picophp_vm_pico2w_i2c_bitwise.c
+    picophp_vm_pico2w_i2c_bitwise_ctrl.c
 )
 
 target_compile_definitions(picophp_app PRIVATE
@@ -256,7 +256,7 @@ function main(array $argv): int {
     $header = capture_cmd([PHP_BINARY, $compiler, $input]);
     file_put_contents($outDir . DIRECTORY_SEPARATOR . 'program_bytecode.h', $header);
 
-    copy($vm, $outDir . DIRECTORY_SEPARATOR . 'picophp_vm_pico2w_i2c_bitwise.c');
+    copy($vm, $outDir . DIRECTORY_SEPARATOR . 'picophp_vm_pico2w_i2c_bitwise_ctrl.c');
 
     if ($pico) {
         write_pico_cmake($outDir);
@@ -282,7 +282,7 @@ function main(array $argv): int {
         '-O2',
         '-DPICOPHP_USE_PROGRAM_HEADER',
         '-I' . $outDir,
-        $outDir . DIRECTORY_SEPARATOR . 'picophp_vm_pico2w_i2c_bitwise.c',
+        $outDir . DIRECTORY_SEPARATOR . 'picophp_vm_pico2w_i2c_bitwise_ctrl.c',
         '-lm',
         '-o',
         $exe,
