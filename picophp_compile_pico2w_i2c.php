@@ -111,6 +111,12 @@ final class NativeId {
     public const NATIVE_I2C_WRITE_CTRL = 19;
     public const NATIVE_ARENA_RESET = 20;
     public const NATIVE_FORMAT_DEC1 = 21;
+    public const NATIVE_KEYBOARD_INIT = 22;
+    public const NATIVE_KEYBOARD_KEY = 23;
+    public const NATIVE_KEYBOARD_PRESS = 24;
+    public const NATIVE_KEYBOARD_RELEASE = 25;
+    public const NATIVE_KEYBOARD_TYPE = 26;
+    public const NATIVE_KEYBOARD_COMBO = 27;
 }
 
 const NATIVE_IDS = [
@@ -136,6 +142,12 @@ const NATIVE_IDS = [
     'i2c_write_ctrl' => NativeId::NATIVE_I2C_WRITE_CTRL,
     'arena_reset' => NativeId::NATIVE_ARENA_RESET,
     'format_dec1' => NativeId::NATIVE_FORMAT_DEC1,
+    'keyboard_init' => NativeId::NATIVE_KEYBOARD_INIT,
+    'keyboard_key'  => NativeId::NATIVE_KEYBOARD_KEY,
+    'keyboard_press' => NativeId::NATIVE_KEYBOARD_PRESS,
+    'keyboard_release' => NativeId::NATIVE_KEYBOARD_RELEASE,
+    'keyboard_type' => NativeId::NATIVE_KEYBOARD_TYPE,
+    'keyboard_combo' => NativeId::NATIVE_KEYBOARD_COMBO,
 ];
 
 const DEFAULT_CONSTANTS = [
@@ -165,6 +177,12 @@ const NATIVE_NAMES = [
     14 => 'i2c_init', 15 => 'i2c_write', 16 => 'i2c_read',
     17 => 'i2c_write_read', 18 => 'i2c_scan', 19 => 'i2c_write_ctrl',
     20 => 'arena_reset', 21 => 'format_dec1',
+    22 => 'keyboard_init',
+    23 => 'keyboard_key',
+    24 => 'keyboard_press',
+    25 => 'keyboard_release',
+    26 => 'keyboard_type',
+    27 => 'keyboard_combo',
 ];
 
 final class Token {
@@ -1710,6 +1728,46 @@ function main(array $argv): int {
         } elseif (str_starts_with($arg, '-')) {
             fwrite(STDERR, "unknown option: {$arg}\n");
             return 2;
+        } elseif ($arg === '--usb-keyboard') {
+            file_put_contents($outDir . '/tusb_config.h', <<<'C'
+#ifndef _TUSB_CONFIG_H_
+#define _TUSB_CONFIG_H_
+
+#define CFG_TUSB_MCU OPT_MCU_RP2040
+#define CFG_TUSB_OS OPT_OS_PICO
+
+#define CFG_TUSB_RHPORT0_MODE (OPT_MODE_DEVICE)
+
+#define CFG_TUD_ENDPOINT0_SIZE 64
+
+#define CFG_TUD_HID 1
+#define CFG_TUD_CDC 0
+#define CFG_TUD_MSC 0
+#define CFG_TUD_MIDI 0
+#define CFG_TUD_VENDOR 0
+
+#define CFG_TUD_HID_EP_BUFSIZE 16
+
+#endif
+C);
+
+    file_put_contents($outDir . '/usb_descriptors.c', <<<'C'
+#include <string.h>
+#include "tusb.h"
+
+enum {
+    ITF_NUM_HID,
+    ITF_NUM_TOTAL
+};
+
+#define EPNUM_HID 0x81
+
+uint8_t const desc_hid_report[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD()
+};
+
+/* 以下 descriptor 本体 */
+C);
         } else {
             $input = $arg;
         }

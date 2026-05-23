@@ -39,6 +39,223 @@
 #endif
 #endif
 
+#ifdef PICOPHP_USB_KEYBOARD
+#include "tusb.h"
+#include "class/hid/hid.h"
+#endif
+
+static void picophp_usb_task(void) {
+#ifdef PICOPHP_USB_KEYBOARD
+    tud_task();
+#endif
+}
+
+#ifdef PICOPHP_USB_KEYBOARD
+
+static void keyboard_wait_ready(void) {
+    while (!tud_mounted()) {
+        tud_task();
+        sleep_ms(1);
+    }
+
+    while (!tud_hid_ready()) {
+        tud_task();
+        sleep_ms(1);
+    }
+}
+
+static void keyboard_send(uint8_t modifier, uint8_t keycode) {
+    keyboard_wait_ready();
+
+    uint8_t keys[6] = {0};
+    keys[0] = keycode;
+
+    tud_hid_keyboard_report(0, modifier, keys);
+
+    for (int i = 0; i < 5; i++) {
+        tud_task();
+        sleep_ms(1);
+    }
+
+    tud_hid_keyboard_report(0, 0, NULL);
+
+    for (int i = 0; i < 5; i++) {
+        tud_task();
+        sleep_ms(1);
+    }
+}
+
+static bool ascii_to_hid(uint8_t ch, uint8_t *modifier, uint8_t *keycode) {
+    *modifier = 0;
+    *keycode = 0;
+
+    if (ch >= 'a' && ch <= 'z') {
+        *keycode = HID_KEY_A + (ch - 'a');
+        return true;
+    }
+
+    if (ch >= 'A' && ch <= 'Z') {
+        *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+        *keycode = HID_KEY_A + (ch - 'A');
+        return true;
+    }
+
+    if (ch >= '1' && ch <= '9') {
+        *keycode = HID_KEY_1 + (ch - '1');
+        return true;
+    }
+
+    if (ch == '0') {
+        *keycode = HID_KEY_0;
+        return true;
+    }
+
+    switch (ch) {
+        case ' ':
+            *keycode = HID_KEY_SPACE;
+            return true;
+
+        case '\n':
+        case '\r':
+            *keycode = HID_KEY_ENTER;
+            return true;
+
+        case '\t':
+            *keycode = HID_KEY_TAB;
+            return true;
+
+        case '!':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_1;
+            return true;
+
+        case '@':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_2;
+            return true;
+
+        case '#':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_3;
+            return true;
+
+        case '$':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_4;
+            return true;
+
+        case '%':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_5;
+            return true;
+
+        case '^':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_6;
+            return true;
+
+        case '&':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_7;
+            return true;
+
+        case '*':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_8;
+            return true;
+
+        case '(':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_9;
+            return true;
+
+        case ')':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_0;
+            return true;
+
+        case '-':
+            *keycode = HID_KEY_MINUS;
+            return true;
+
+        case '_':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_MINUS;
+            return true;
+
+        case '=':
+            *keycode = HID_KEY_EQUAL;
+            return true;
+
+        case '+':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_EQUAL;
+            return true;
+
+        case '[':
+            *keycode = HID_KEY_BRACKET_LEFT;
+            return true;
+
+        case ']':
+            *keycode = HID_KEY_BRACKET_RIGHT;
+            return true;
+
+        case ';':
+            *keycode = HID_KEY_SEMICOLON;
+            return true;
+
+        case ':':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_SEMICOLON;
+            return true;
+
+        case '\'':
+            *keycode = HID_KEY_APOSTROPHE;
+            return true;
+
+        case '"':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_APOSTROPHE;
+            return true;
+
+        case ',':
+            *keycode = HID_KEY_COMMA;
+            return true;
+
+        case '<':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_COMMA;
+            return true;
+
+        case '.':
+            *keycode = HID_KEY_PERIOD;
+            return true;
+
+        case '>':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_PERIOD;
+            return true;
+
+        case '/':
+            *keycode = HID_KEY_SLASH;
+            return true;
+
+        case '?':
+            *modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+            *keycode = HID_KEY_SLASH;
+            return true;
+
+        case '\\':
+            *keycode = HID_KEY_BACKSLASH;
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+#endif
+
 #ifdef PICOPHP_ON_PICO
 static void picophp_debug_led_set(bool on) {
 #if defined(CYW43_WL_GPIO_LED_PIN)
@@ -194,6 +411,13 @@ typedef enum {
     NATIVE_I2C_WRITE_CTRL = 19,
     NATIVE_ARENA_RESET = 20,
     NATIVE_FORMAT_DEC1 = 21,
+
+    NATIVE_KEYBOARD_INIT = 22,
+    NATIVE_KEYBOARD_KEY  = 23,
+    NATIVE_KEYBOARD_PRESS = 24,
+    NATIVE_KEYBOARD_RELEASE = 25,
+    NATIVE_KEYBOARD_TYPE = 26,
+    NATIVE_KEYBOARD_COMBO = 27,
 } NativeId;
 
 typedef enum {
@@ -286,6 +510,10 @@ static int32_t value_as_int(Value v) {
     }
 }
 
+static bool value_is_number(Value v) {
+    return v.type == VAL_INT || v.type == VAL_FLOAT;
+}
+
 static bool native_format_dec1(Vm *vm, Value arg, Value *ret) {
     /*
      * Format a numeric value scaled by 10.
@@ -341,6 +569,172 @@ static bool native_format_dec1(Vm *vm, Value arg, Value *ret) {
     ret->as.s.flags = STR_FLAG_ARENA;
     ret->as.s.data = buf;
     return true;
+}
+
+static bool native_keyboard_init(Vm *vm, int argc, Value *args, Value *ret) {
+    (void)args;
+
+    if (argc != 0) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+#ifdef PICOPHP_USB_KEYBOARD
+    keyboard_wait_ready();
+    ret->type = VAL_NULL;
+    return true;
+#else
+    vm->status = VM_ERR_BAD_NATIVE;
+    return false;
+#endif
+}
+
+static bool native_keyboard_key(Vm *vm, int argc, Value *args, Value *ret) {
+    if (argc != 1) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+#ifdef PICOPHP_USB_KEYBOARD
+    if (!value_is_number(args[0])) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    int keycode = value_as_int(args[0]);
+
+    if (keycode < 0 || keycode > 255) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    keyboard_send(0, (uint8_t)keycode);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    vm->status = VM_ERR_BAD_NATIVE;
+    return false;
+#endif
+}
+
+static bool native_keyboard_press(Vm *vm, int argc, Value *args, Value *ret) {
+    if (argc != 2) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+#ifdef PICOPHP_USB_KEYBOARD
+    if (!value_is_number(args[0]) || !value_is_number(args[1])) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    int modifier = value_as_int(args[0]);
+    int keycode = value_as_int(args[1]);
+
+    if (modifier < 0 || modifier > 255 || keycode < 0 || keycode > 255) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    keyboard_wait_ready();
+
+    uint8_t keys[6] = {0};
+    keys[0] = (uint8_t)keycode;
+
+    tud_hid_keyboard_report(0, (uint8_t)modifier, keys);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    vm->status = VM_ERR_BAD_NATIVE;
+    return false;
+#endif
+}
+
+static bool native_keyboard_release(Vm *vm, int argc, Value *args, Value *ret) {
+    (void)args;
+
+    if (argc != 0) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+#ifdef PICOPHP_USB_KEYBOARD
+    keyboard_wait_ready();
+    tud_hid_keyboard_report(0, 0, NULL);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    vm->status = VM_ERR_BAD_NATIVE;
+    return false;
+#endif
+}
+
+static bool native_keyboard_combo(Vm *vm, int argc, Value *args, Value *ret) {
+    if (argc != 2) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+#ifdef PICOPHP_USB_KEYBOARD
+    if (!value_is_number(args[0]) || !value_is_number(args[1])) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    int modifier = value_as_int(args[0]);
+    int keycode = value_as_int(args[1]);
+
+    if (modifier < 0 || modifier > 255 || keycode < 0 || keycode > 255) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    keyboard_send((uint8_t)modifier, (uint8_t)keycode);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    vm->status = VM_ERR_BAD_NATIVE;
+    return false;
+#endif
+}
+
+static bool native_keyboard_type(Vm *vm, int argc, Value *args, Value *ret) {
+    if (argc != 1) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+#ifdef PICOPHP_USB_KEYBOARD
+    if (args[0].type != VAL_STRING) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    Value s = args[0];
+
+    for (uint16_t i = 0; i < s.as.s.len; i++) {
+        uint8_t modifier;
+        uint8_t keycode;
+
+        if (ascii_to_hid(s.as.s.data[i], &modifier, &keycode)) {
+            keyboard_send(modifier, keycode);
+        }
+
+        tud_task();
+        sleep_ms(2);
+    }
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    vm->status = VM_ERR_BAD_NATIVE;
+    return false;
+#endif
 }
 
 static float value_as_float(Value v) {
@@ -679,7 +1073,12 @@ static bool native_arena_reset(Vm *vm, Value *ret) {
 }
 
 static void native_sleep_ms(int32_t ms) {
-#ifdef PICOPHP_ON_PICO
+#ifdef PICOPHP_USB_KEYBOARD
+    for (int32_t i = 0; i < ms; i++) {
+        tud_task();
+        sleep_ms(1);
+    }
+#elif PICOPHP_ON_PICO
     sleep_ms((uint32_t)ms);
 #else
     printf("[sleep_ms %ld]\n", (long)ms);
@@ -1159,6 +1558,42 @@ static bool call_native(Vm *vm, uint8_t id, uint8_t argc) {
         case NATIVE_FORMAT_DEC1:
             if (argc != 1) goto bad_arity;
             if (!native_format_dec1(vm, args[0], &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_KEYBOARD_INIT:
+            if (!native_keyboard_init(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_KEYBOARD_KEY:
+            if (!native_keyboard_key(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_KEYBOARD_PRESS:
+            if (!native_keyboard_press(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_KEYBOARD_RELEASE:
+            if (!native_keyboard_release(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_KEYBOARD_TYPE:
+            if (!native_keyboard_type(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_KEYBOARD_COMBO:
+            if (!native_keyboard_combo(vm, argc, args, &ret)) {
                 return false;
             }
             break;

@@ -108,7 +108,8 @@ function require_file(string $path): void {
     }
 }
 
-function write_pico_cmake(string $outDir): void {
+function write_pico_cmake(string $outDir, bool $usbKeyboard = false): void {
+    $picophpUsbKeyboard = $usbKeyboard ? "1" : "0";
     $cmake = <<<'CMAKE'
 cmake_minimum_required(VERSION 3.13)
 
@@ -125,29 +126,60 @@ add_executable(picophp_app
     picophp_vm_pico2w_i2c_bitwise_ctrl.c
 )
 
-target_compile_definitions(picophp_app PRIVATE
-    PICOPHP_ON_PICO
-    PICOPHP_USE_PROGRAM_HEADER
-)
+set(PICOPHP_USB_KEYBOARD @PICOPHP_USB_KEYBOARD@)
 
-target_include_directories(picophp_app PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}
-)
+if(PICOPHP_USB_KEYBOARD)
+    target_sources(picophp_app PRIVATE
+        usb_descriptors.c
+    )
 
-target_link_libraries(picophp_app
-    pico_stdlib
-    pico_cyw43_arch_none
-    hardware_gpio
-    hardware_i2c
-    m
-)
+    target_compile_definitions(picophp_app PRIVATE
+        PICOPHP_ON_PICO=1
+        PICOPHP_USB_KEYBOARD=1
+    )
 
-pico_enable_stdio_usb(picophp_app 1)
-pico_enable_stdio_uart(picophp_app 0)
+    target_include_directories(picophp_app PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_link_libraries(picophp_app
+        pico_stdlib
+        pico_cyw43_arch_none
+        tinyusb_device
+        tinyusb_board
+        hardware_gpio
+        hardware_i2c
+    )
+
+    # USBはHID Keyboardに使うので、printfはUARTへ逃がす
+    pico_enable_stdio_usb(picophp_app 0)
+    pico_enable_stdio_uart(picophp_app 1)
+else()
+    target_compile_definitions(picophp_app PRIVATE
+        PICOPHP_ON_PICO
+        PICOPHP_USE_PROGRAM_HEADER
+    )
+
+    target_include_directories(picophp_app PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_link_libraries(picophp_app
+        pico_stdlib
+        pico_cyw43_arch_none
+        hardware_gpio
+        hardware_i2c
+        m
+    )
+
+    pico_enable_stdio_usb(picophp_app 1)
+    pico_enable_stdio_uart(picophp_app 0)
+endif()
 
 pico_add_extra_outputs(picophp_app)
 CMAKE;
 
+    $cmake = str_replace('@PICOPHP_USB_KEYBOARD@', $picophpUsbKeyboard, $cmake);
     file_put_contents($outDir . DIRECTORY_SEPARATOR . 'CMakeLists.txt', $cmake);
 
     $import = <<<'IMPORT'
@@ -202,6 +234,7 @@ function main(array $argv): int {
     $run = false;
     $pico = false;
     $cc = getenv('CC') ?: 'cc';
+    $usbInput = false;
     $input = null;
 
     for ($i = 1; $i < count($argv); $i++) {
@@ -230,6 +263,8 @@ function main(array $argv): int {
             $cc = $argv[$i];
         } elseif (str_starts_with($arg, '--cc=')) {
             $cc = substr($arg, strlen('--cc='));
+        } elseif ($arg === '--usb-keyboard') {
+            $usbInput = true;
         } elseif (str_starts_with($arg, '-')) {
             throw new BuildError("unknown option: {$arg}");
         } else {
@@ -249,6 +284,188 @@ function main(array $argv): int {
     require_file($vm);
     require_file($input);
 
+    if ($usbInput === true) {
+        $usbInput = true;
+        file_put_contents($outDir . '/tusb_config.h', <<<'C'
+#ifndef _TUSB_CONFIG_H_
+#define _TUSB_CONFIG_H_
+
+#define CFG_TUSB_MCU OPT_MCU_RP2040
+#define CFG_TUSB_OS OPT_OS_PICO
+
+#define CFG_TUSB_RHPORT0_MODE (OPT_MODE_DEVICE)
+
+#define CFG_TUD_ENDPOINT0_SIZE 64
+
+#define CFG_TUD_HID 1
+#define CFG_TUD_CDC 0
+#define CFG_TUD_MSC 0
+#define CFG_TUD_MIDI 0
+#define CFG_TUD_VENDOR 0
+
+#define CFG_TUD_HID_EP_BUFSIZE 16
+
+#endif
+C);
+
+        file_put_contents($outDir . '/usb_descriptors.c', <<<'C'
+#include <string.h>
+#include "tusb.h"
+
+enum {
+    ITF_NUM_HID,
+    ITF_NUM_TOTAL
+};
+
+#define EPNUM_HID 0x81
+
+uint8_t const desc_hid_report[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD()
+};
+
+/* 以下 descriptor 本体 */
+C);
+        file_put_contents($outDir . '/usb_descriptors.c', <<<'C'
+#include "tusb.h"
+
+enum {
+    ITF_NUM_HID,
+    ITF_NUM_TOTAL
+};
+
+#define EPNUM_HID 0x81
+
+uint8_t const desc_hid_report[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD()
+};
+
+tusb_desc_device_t const desc_device = {
+    .bLength            = sizeof(tusb_desc_device_t),
+    .bDescriptorType    = TUSB_DESC_DEVICE,
+    .bcdUSB             = 0x0200,
+
+    .bDeviceClass       = 0x00,
+    .bDeviceSubClass    = 0x00,
+    .bDeviceProtocol    = 0x00,
+
+    .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+
+    .idVendor           = 0xCafe,
+    .idProduct          = 0x4020,
+    .bcdDevice          = 0x0100,
+
+    .iManufacturer      = 0x01,
+    .iProduct           = 0x02,
+    .iSerialNumber      = 0x03,
+
+    .bNumConfigurations = 0x01
+};
+
+uint8_t const *tud_descriptor_device_cb(void) {
+    return (uint8_t const *)&desc_device;
+}
+
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(
+        1,
+        ITF_NUM_TOTAL,
+        0,
+        CONFIG_TOTAL_LEN,
+        TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP,
+        100
+    ),
+
+    TUD_HID_DESCRIPTOR(
+        ITF_NUM_HID,
+        0,
+        HID_ITF_PROTOCOL_KEYBOARD,
+        sizeof(desc_hid_report),
+        EPNUM_HID,
+        CFG_TUD_HID_EP_BUFSIZE,
+        10
+    )
+};
+
+uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
+    (void)index;
+    return desc_configuration;
+}
+
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+    (void)instance;
+    return desc_hid_report;
+}
+
+char const *string_desc_arr[] = {
+    (const char[]){ 0x09, 0x04 },
+    "PicoPHP",
+    "PicoPHP Keyboard",
+    "000001",
+};
+
+static uint16_t _desc_str[32];
+
+uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+    (void)langid;
+
+    uint8_t chr_count;
+
+    if (index == 0) {
+        memcpy(&_desc_str[1], string_desc_arr[0], 2);
+        chr_count = 1;
+    } else {
+        if (index >= sizeof(string_desc_arr) / sizeof(string_desc_arr[0])) {
+            return NULL;
+        }
+
+        const char *str = string_desc_arr[index];
+        chr_count = (uint8_t)strlen(str);
+
+        if (chr_count > 31) {
+            chr_count = 31;
+        }
+
+        for (uint8_t i = 0; i < chr_count; i++) {
+            _desc_str[1 + i] = str[i];
+        }
+    }
+
+    _desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
+    return _desc_str;
+}
+
+void tud_hid_set_report_cb(
+    uint8_t instance,
+    uint8_t report_id,
+    hid_report_type_t report_type,
+    uint8_t const *buffer,
+    uint16_t bufsize
+) {
+    (void)instance;
+    (void)report_id;
+    (void)report_type;
+    (void)buffer;
+    (void)bufsize;
+}
+
+uint16_t tud_hid_get_report_cb(
+    uint8_t instance,
+    uint8_t report_id,
+    hid_report_type_t report_type,
+    uint8_t *buffer,
+    uint16_t reqlen
+) {
+    (void)instance;
+    (void)report_id;
+    (void)report_type;
+    (void)buffer;
+    (void)reqlen;
+    return 0;
+}
+C);
+    }
     if (!is_dir($outDir) && !mkdir($outDir, 0777, true)) {
         throw new BuildError("failed to create output directory: {$outDir}");
     }
@@ -259,7 +476,7 @@ function main(array $argv): int {
     copy($vm, $outDir . DIRECTORY_SEPARATOR . 'picophp_vm_pico2w_i2c_bitwise_ctrl.c');
 
     if ($pico) {
-        write_pico_cmake($outDir);
+        write_pico_cmake($outDir, $usbInput);
         fwrite(STDERR, "\nGenerated Pico SDK project in: {$outDir}\n");
         fwrite(STDERR, "Next:\n");
         fwrite(STDERR, "  cd " . sh_quote($outDir) . "\n");

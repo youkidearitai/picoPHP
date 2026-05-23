@@ -1,0 +1,51 @@
+<?php
+
+const MOD_NONE = 0;
+const MOD_CTRL = 1;
+const MOD_SHIFT = 2;
+const MOD_ALT = 4;
+const MOD_GUI = 8;
+
+const KEY_A = 4;
+const KEY_B = 5;
+const KEY_C = 6;
+const KEY_D = 7;
+const KEY_E = 8;
+const KEY_F = 9;
+const KEY_G = 10;
+const KEY_H = 11;
+const KEY_I = 12;
+const KEY_J = 13;
+const KEY_K = 14;
+const KEY_L = 15;
+const KEY_M = 16;
+const KEY_N = 17;
+const KEY_O = 18;
+const KEY_P = 19;
+const KEY_Q = 20;
+const KEY_R = 21;
+const KEY_S = 22;
+const KEY_T = 23;
+const KEY_U = 24;
+const KEY_V = 25;
+const KEY_W = 26;
+const KEY_X = 27;
+const KEY_Y = 28;
+const KEY_Z = 29;
+
+const KEY_1 = 30;
+const KEY_2 = 31;
+const KEY_3 = 32;
+const KEY_4 = 33;
+const KEY_5 = 34;
+const KEY_6 = 35;
+const KEY_7 = 36;
+const KEY_8 = 37;
+const KEY_9 = 38;
+const KEY_0 = 39;
+
+const KEY_ENTER = 40;
+const KEY_ESC = 41;
+const KEY_BACKSPACE = 42;
+const KEY_TAB = 43;
+const KEY_SPACE = 44;
