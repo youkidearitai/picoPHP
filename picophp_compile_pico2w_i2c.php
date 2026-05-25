@@ -192,6 +192,7 @@ final class Token {
         public mixed $value,
         public int $line,
         public int $col,
+        public string $file = '<stdin>'
     ) {}
 }
 
@@ -270,13 +271,20 @@ function decode_php_string_literal(string $raw): string {
 /**
  * @return list<Token>
  */
-function lex_source(string $src): array {
+function lex_source(string $src, string $defaultFile = '<stdin>'): array {
     $src = strip_php_open_tag($src);
     $tokens = [];
     $i = 0;
     $len = strlen($src);
     $line = 1;
     $col = 1;
+    $currentFile = $defaultFile;
+    $lineBase = 0;
+
+    $logicalLine = function () use (&$line, &$lineBase): int {
+        $n = $line - $lineBase;
+        return $n > 0 ? $n : 1;
+    };
 
     $advance = function (string $ch) use (&$line, &$col): void {
         if ($ch === "\n") {
@@ -320,6 +328,21 @@ function lex_source(string $src): array {
         }
 
         if (substr($src, $i, 2) === '//') {
+            $commentStartLine = $line;
+            $j = $i;
+            while ($j < $len && $src[$j] !== "\n") {
+                $j++;
+            }
+            $comment = substr($src, $i, $j - $i);
+            if (preg_match('/^\/\/__PICOPHP_FILE__:([^:]+)(?::([0-9]+))?$/', $comment, $m)) {
+                $decoded = base64_decode(trim($m[1]), true);
+                if ($decoded !== false && $decoded !== '') {
+                    $currentFile = $decoded;
+                    $sourceLine = isset($m[2]) ? max(1, (int)$m[2]) : 1;
+                    // The next physical source line corresponds to $sourceLine of this file.
+                    $lineBase = $commentStartLine - ($sourceLine - 1);
+                }
+            }
             while ($i < $len && $src[$i] !== "\n") {
                 $advance($src[$i]);
                 $i++;
@@ -344,8 +367,9 @@ function lex_source(string $src): array {
             continue;
         }
 
-        $startLine = $line;
+        $startLine = $logicalLine();
         $startCol = $col;
+        $startFile = $currentFile;
 
         if ($ch === '$') {
             $j = $i + 1;
@@ -357,7 +381,7 @@ function lex_source(string $src): array {
                 $j++;
             }
             $text = substr($src, $i, $j - $i);
-            $tokens[] = new Token('VAR', $text, substr($text, 1), $startLine, $startCol);
+            $tokens[] = new Token('VAR', $text, substr($text, 1), $startLine, $startCol, $startFile);
             while ($i < $j) {
                 $advance($src[$i]);
                 $i++;
@@ -372,7 +396,7 @@ function lex_source(string $src): array {
             }
             $text = substr($src, $i, $j - $i);
             $kind = isset($keywords[$text]) ? $text : 'IDENT';
-            $tokens[] = new Token($kind, $text, $text, $startLine, $startCol);
+            $tokens[] = new Token($kind, $text, $text, $startLine, $startCol, $startFile);
             while ($i < $j) {
                 $advance($src[$i]);
                 $i++;
@@ -394,7 +418,7 @@ function lex_source(string $src): array {
                 }
             }
             $text = substr($src, $i, $j - $i);
-            $tokens[] = new Token($isFloat ? 'FLOAT' : 'INT', $text, $isFloat ? (float)$text : (int)$text, $startLine, $startCol);
+            $tokens[] = new Token($isFloat ? 'FLOAT' : 'INT', $text, $isFloat ? (float)$text : (int)$text, $startLine, $startCol, $startFile);
             while ($i < $j) {
                 $advance($src[$i]);
                 $i++;
@@ -427,7 +451,7 @@ function lex_source(string $src): array {
                 throw new PicoCompileError("unterminated string at {$line}:{$col}");
             }
             $raw = substr($src, $i, $j - $i + 1);
-            $tokens[] = new Token('STRING', $raw, decode_php_string_literal($raw), $startLine, $startCol);
+            $tokens[] = new Token('STRING', $raw, decode_php_string_literal($raw), $startLine, $startCol, $startFile);
             while ($i <= $j) {
                 $advance($src[$i]);
                 $i++;
@@ -437,7 +461,7 @@ function lex_source(string $src): array {
 
         $two = substr($src, $i, 2);
         if (isset($twoChar[$two])) {
-            $tokens[] = new Token($two, $two, $two, $startLine, $startCol);
+            $tokens[] = new Token($two, $two, $two, $startLine, $startCol, $startFile);
             $advance($src[$i]);
             $advance($src[$i + 1]);
             $i += 2;
@@ -445,7 +469,7 @@ function lex_source(string $src): array {
         }
 
         if (str_contains($oneChar, $ch)) {
-            $tokens[] = new Token($ch, $ch, $ch, $startLine, $startCol);
+            $tokens[] = new Token($ch, $ch, $ch, $startLine, $startCol, $startFile);
             $advance($ch);
             $i++;
             continue;
@@ -454,12 +478,27 @@ function lex_source(string $src): array {
         throw new PicoCompileError("unexpected character " . var_export($ch, true) . " at {$line}:{$col}");
     }
 
-    $tokens[] = new Token('EOF', '', null, $line, $col);
+    $tokens[] = new Token('EOF', '', null, $line, $col, $currentFile);
     return $tokens;
 }
 
-abstract class Expr {}
-abstract class Stmt {}
+abstract class Expr {
+    public string $file = '<stdin>';
+    public int $line = 1;
+    public int $col = 1;
+}
+abstract class Stmt {
+    public string $file = '<stdin>';
+    public int $line = 1;
+    public int $col = 1;
+}
+
+function attach_loc(object $node, object $loc): object {
+    $node->file = $loc->file ?? '<stdin>';
+    $node->line = (int)($loc->line ?? 1);
+    $node->col = (int)($loc->col ?? 1);
+    return $node;
+}
 
 final class ProgramNode {
     /** @param list<Stmt> $stmts */
@@ -575,12 +614,14 @@ final class Parser {
     }
 
     private function parseStmt(): Stmt {
+        $stmtTok = $this->cur();
+
         if ($this->match('const') !== null) {
             $name = $this->expect('IDENT')->value;
             $this->expect('=');
             $expr = $this->parseExpr();
             $this->expect(';');
-            return new ConstStmt($name, $expr);
+            return attach_loc(new ConstStmt($name, $expr), $stmtTok);
         }
 
         if ($this->match('function') !== null) {
@@ -596,16 +637,16 @@ final class Parser {
                 }
             }
             $this->expect(')');
-            return new FunctionStmt($name, $params, $this->parseBlock());
+            return attach_loc(new FunctionStmt($name, $params, $this->parseBlock()), $stmtTok);
         }
 
         if ($this->match('return') !== null) {
             if ($this->match(';') !== null) {
-                return new ReturnStmt(null);
+                return attach_loc(new ReturnStmt(null), $stmtTok);
             }
             $expr = $this->parseExpr();
             $this->expect(';');
-            return new ReturnStmt($expr);
+            return attach_loc(new ReturnStmt($expr), $stmtTok);
         }
 
         if ($this->match('if') !== null) {
@@ -617,14 +658,14 @@ final class Parser {
             if ($this->match('else') !== null) {
                 $elseBody = $this->parseBlock();
             }
-            return new IfStmt($cond, $thenBody, $elseBody);
+            return attach_loc(new IfStmt($cond, $thenBody, $elseBody), $stmtTok);
         }
 
         if ($this->match('while') !== null) {
             $this->expect('(');
             $cond = $this->parseExpr();
             $this->expect(')');
-            return new WhileStmt($cond, $this->parseBlock());
+            return attach_loc(new WhileStmt($cond, $this->parseBlock()), $stmtTok);
         }
 
         if ($this->cur()->kind === 'VAR' && $this->tokens[$this->i + 1]->kind === '=') {
@@ -632,12 +673,12 @@ final class Parser {
             $this->expect('=');
             $expr = $this->parseExpr();
             $this->expect(';');
-            return new AssignStmt($name, $expr);
+            return attach_loc(new AssignStmt($name, $expr), $stmtTok);
         }
 
         $expr = $this->parseExpr();
         $this->expect(';');
-        return new ExprStmt($expr);
+        return attach_loc(new ExprStmt($expr), $stmtTok);
     }
 
     private function parseExpr(): Expr {
@@ -647,7 +688,7 @@ final class Parser {
     private function parseEquality(): Expr {
         $expr = $this->parseComparison();
         while (($t = $this->match('==', '!=')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseComparison());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseComparison()), $t);
         }
         return $expr;
     }
@@ -655,7 +696,7 @@ final class Parser {
     private function parseComparison(): Expr {
         $expr = $this->parseBitOr();
         while (($t = $this->match('<', '<=', '>', '>=')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseBitOr());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseBitOr()), $t);
         }
         return $expr;
     }
@@ -663,7 +704,7 @@ final class Parser {
     private function parseBitOr(): Expr {
         $expr = $this->parseBitXor();
         while (($t = $this->match('|')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseBitXor());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseBitXor()), $t);
         }
         return $expr;
     }
@@ -671,7 +712,7 @@ final class Parser {
     private function parseBitXor(): Expr {
         $expr = $this->parseBitAnd();
         while (($t = $this->match('^')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseBitAnd());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseBitAnd()), $t);
         }
         return $expr;
     }
@@ -679,7 +720,7 @@ final class Parser {
     private function parseBitAnd(): Expr {
         $expr = $this->parseShift();
         while (($t = $this->match('&')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseShift());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseShift()), $t);
         }
         return $expr;
     }
@@ -687,7 +728,7 @@ final class Parser {
     private function parseShift(): Expr {
         $expr = $this->parseTerm();
         while (($t = $this->match('<<', '>>')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseTerm());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseTerm()), $t);
         }
         return $expr;
     }
@@ -695,7 +736,7 @@ final class Parser {
     private function parseTerm(): Expr {
         $expr = $this->parseFactor();
         while (($t = $this->match('+', '-', '.')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseFactor());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseFactor()), $t);
         }
         return $expr;
     }
@@ -703,17 +744,17 @@ final class Parser {
     private function parseFactor(): Expr {
         $expr = $this->parseUnary();
         while (($t = $this->match('*', '/', '%')) !== null) {
-            $expr = new BinaryExpr($t->kind, $expr, $this->parseUnary());
+            $expr = attach_loc(new BinaryExpr($t->kind, $expr, $this->parseUnary()), $t);
         }
         return $expr;
     }
 
     private function parseUnary(): Expr {
         if (($t = $this->match('-')) !== null) {
-            return new UnaryExpr($t->kind, $this->parseUnary());
+            return attach_loc(new UnaryExpr($t->kind, $this->parseUnary()), $t);
         }
         if (($t = $this->match('~')) !== null) {
-            return new UnaryExpr($t->kind, $this->parseUnary());
+            return attach_loc(new UnaryExpr($t->kind, $this->parseUnary()), $t);
         }
         return $this->parsePostfix();
     }
@@ -724,7 +765,7 @@ final class Parser {
             if ($this->match('[') !== null) {
                 $idx = $this->parseExpr();
                 $this->expect(']');
-                $expr = new IndexExpr($expr, $idx);
+                $expr = attach_loc(new IndexExpr($expr, $idx), $expr);
                 continue;
             }
             return $expr;
@@ -733,19 +774,19 @@ final class Parser {
 
     private function parsePrimary(): Expr {
         if (($t = $this->match('INT', 'FLOAT', 'STRING')) !== null) {
-            return new LiteralExpr($t->value);
+            return attach_loc(new LiteralExpr($t->value), $t);
         }
-        if ($this->match('true') !== null) {
-            return new LiteralExpr(true);
+        if (($t = $this->match('true')) !== null) {
+            return attach_loc(new LiteralExpr(true), $t);
         }
-        if ($this->match('false') !== null) {
-            return new LiteralExpr(false);
+        if (($t = $this->match('false')) !== null) {
+            return attach_loc(new LiteralExpr(false), $t);
         }
-        if ($this->match('null') !== null) {
-            return new LiteralExpr(null);
+        if (($t = $this->match('null')) !== null) {
+            return attach_loc(new LiteralExpr(null), $t);
         }
         if (($t = $this->match('VAR')) !== null) {
-            return new VarExpr($t->value);
+            return attach_loc(new VarExpr($t->value), $t);
         }
         if (($t = $this->match('IDENT')) !== null) {
             $name = $t->value;
@@ -760,9 +801,9 @@ final class Parser {
                     }
                 }
                 $this->expect(')');
-                return new CallExpr($name, $args);
+                return attach_loc(new CallExpr($name, $args), $t);
             }
-            return new NameExpr($name);
+            return attach_loc(new NameExpr($name), $t);
         }
         if ($this->match('(') !== null) {
             $expr = $this->parseExpr();
@@ -804,6 +845,12 @@ final class ConstValue {
 final class Compiler {
     /** @var list<int> */
     private array $code = [];
+    /** @var list<string> */
+    private array $debugFiles = [];
+    /** @var array<string,int> */
+    private array $debugFileIds = [];
+    /** @var list<array{ip:int,file_id:int,line:int}> */
+    private array $debugLines = [];
 
     /** @var list<ConstValue> */
     private array $consts = [];
@@ -826,8 +873,30 @@ final class Compiler {
     private bool $inFunction = false;
     private ?FunctionInfo $currentFunction = null;
 
+    private ?string $debugPathBase = null;
+
     public function __construct() {
         $this->compileConsts = DEFAULT_CONSTANTS;
+    }
+
+    private function shortDebugPath(string $file): string {
+        $file = str_replace('\\', '/', $file);
+
+        if ($this->debugPathBase !== null) {
+            $base = rtrim(str_replace('\\', '/', $this->debugPathBase), '/') . '/';
+
+            if (str_starts_with($file, $base)) {
+                return substr($file, strlen($base));
+            }
+        }
+
+        // /path/to/lib/bmp280.pphp -> lib/bmp280.pphp を拾いたい場合
+        $pos = strpos($file, '/lib/');
+        if ($pos !== false) {
+            return substr($file, $pos + 1);
+        }
+
+        return basename($file);
     }
 
     private function emit(int ...$bytes): int {
@@ -1027,7 +1096,31 @@ final class Compiler {
         throw new PicoCompileError('const initializer must be a constant expression');
     }
 
+    private function debugFileId(string $file): int {
+        $file = $this->shortDebugPath($file);
+
+        if (isset($this->debugFileIds[$file])) {
+            return $this->debugFileIds[$file];
+        }
+        $id = count($this->debugFiles);
+        $this->debugFiles[] = $file;
+        $this->debugFileIds[$file] = $id;
+        return $id;
+    }
+
+    private function markDebug(object $node): void {
+        $ip = count($this->code);
+        $fileId = $this->debugFileId($node->file ?? '<stdin>');
+        $line = (int)($node->line ?? 1);
+        $last = $this->debugLines[count($this->debugLines) - 1] ?? null;
+        if ($last !== null && $last['ip'] === $ip && $last['file_id'] === $fileId && $last['line'] === $line) {
+            return;
+        }
+        $this->debugLines[] = ['ip' => $ip, 'file_id' => $fileId, 'line' => $line];
+    }
+
     private function compileStmt(Stmt $stmt): void {
+        $this->markDebug($stmt);
         if ($stmt instanceof ConstStmt) {
             $this->compileConsts[$stmt->name] = $this->evalConstExpr($stmt->expr);
             return;
@@ -1120,6 +1213,7 @@ final class Compiler {
     }
 
     private function compileExpr(Expr $expr): void {
+        $this->markDebug($expr);
         if ($expr instanceof LiteralExpr) {
             if ($expr->value === null) {
                 $this->emit(Op::OP_NULL);
@@ -1279,6 +1373,10 @@ final class Compiler {
         return implode(', ', $out);
     }
 
+    private function cStringLiteral(string $s): string {
+        return '"' . addcslashes($s, "\\\"\n\r\t") . '"';
+    }
+
     public function emitCHeader(string $symbolPrefix = 'picophp_program'): string {
         $lines = [];
         $lines[] = '// Generated by picophp_compile.php';
@@ -1347,6 +1445,27 @@ final class Compiler {
         }
         $lines[] = '';
 
+        $lines[] = 'typedef struct {';
+        $lines[] = '    uint16_t ip;';
+        $lines[] = '    uint16_t file_id;';
+        $lines[] = '    uint16_t line;';
+        $lines[] = '} PicoPhpDebugLine;';
+        $lines[] = '';
+        $lines[] = '#define PICOPHP_PROGRAM_HAS_DEBUG_LINES 1';
+        $lines[] = "static const char *{$symbolPrefix}_debug_files[] = {";
+        foreach ($this->debugFiles as $file) {
+            $lines[] = '    ' . $this->cStringLiteral($file) . ',';
+        }
+        $lines[] = '};';
+        $lines[] = "static const unsigned {$symbolPrefix}_debug_file_count = " . count($this->debugFiles) . ';';
+        $lines[] = '';
+        $lines[] = "static const PicoPhpDebugLine {$symbolPrefix}_debug_lines[] = {";
+        foreach ($this->debugLines as $d) {
+            $lines[] = "    { {$d['ip']}, {$d['file_id']}, {$d['line']} },";
+        }
+        $lines[] = '};';
+        $lines[] = "static const unsigned {$symbolPrefix}_debug_line_count = " . count($this->debugLines) . ';';
+        $lines[] = '';
         return implode("\n", $lines);
     }
 }
@@ -1548,7 +1667,7 @@ function disassemble_code(array $code, array $consts, array $globals, array $fun
 }
 
 function compile_source_debug(string $src, string $symbolPrefix = 'picophp_program'): array {
-    $tokens = lex_source($src);
+    $tokens = lex_source($src, $symbolPrefix . '.pphp');
     $program = (new Parser($tokens))->parse();
     $compiler = new Compiler();
     $compiler->compile($program);
@@ -1587,6 +1706,16 @@ function resolve_require_path(string $baseDir, string $required): string {
     return $baseDir . DIRECTORY_SEPARATOR . $required;
 }
 
+function picophp_file_marker(string $file, int $line = 1): string {
+    // The lexer recognizes this marker and treats the following physical line
+    // as $line of $file. Keep it as // comment so it is stripped before parsing.
+    $file = str_replace('\\', '/', $file);
+    if ($line < 1) {
+        $line = 1;
+    }
+    return "\n//__PICOPHP_FILE__:" . base64_encode($file) . ":" . $line . "\n";
+}
+
 /**
  * @param array<string,bool> $seen
  */
@@ -1620,18 +1749,24 @@ function preprocess_require_file(string $path, array &$seen, bool $once = true, 
         throw new CompileError("failed to split source: {$real}");
     }
 
-    $out = "\n/* begin require: {$real} */\n";
+    $out = picophp_file_marker($real, 1);
 
     foreach ($lines as $lineNo => $line) {
         if (preg_match('/^\s*require_once\s+([\'"])([^\'"]+)\1\s*;\s*(?:\/\/.*)?$/', $line, $m)) {
             $child = resolve_require_path($dir, $m[2]);
             $out .= preprocess_require_file($child, $seen, true, array_merge($stack, [$real]));
+            // After the included file, restore the parent file location.
+            // $lineNo is zero-based, and the next source line is $lineNo + 2.
+            $out .= picophp_file_marker($real, $lineNo + 2);
             continue;
         }
 
         if (preg_match('/^\s*require\s+([\'"])([^\'"]+)\1\s*;\s*(?:\/\/.*)?$/', $line, $m)) {
             $child = resolve_require_path($dir, $m[2]);
             $out .= preprocess_require_file($child, $seen, false, array_merge($stack, [$real]));
+            // After the included file, restore the parent file location.
+            // $lineNo is zero-based, and the next source line is $lineNo + 2.
+            $out .= picophp_file_marker($real, $lineNo + 2);
             continue;
         }
 
@@ -1645,7 +1780,6 @@ function preprocess_require_file(string $path, array &$seen, bool $once = true, 
         $out .= $line . "\n";
     }
 
-    $out .= "/* end require: {$real} */\n";
     return $out;
 }
 
@@ -1672,7 +1806,7 @@ function compile_file_debug(string $path, string $symbolPrefix = 'picophp_progra
 }
 
 function compile_source(string $src, string $symbolPrefix = 'picophp_program'): string {
-    $tokens = lex_source($src);
+    $tokens = lex_source($src, $symbolPrefix . '.pphp');
     $program = (new Parser($tokens))->parse();
     $compiler = new Compiler();
     $compiler->compile($program);

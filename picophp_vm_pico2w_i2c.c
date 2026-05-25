@@ -1923,6 +1923,45 @@ static const FunctionInfo picophp_program_funcs[] = {
 static const unsigned picophp_program_func_count = 0;
 #endif
 
+#ifdef PICOPHP_PROGRAM_HAS_DEBUG_LINES
+static const PicoPhpDebugLine *picophp_find_debug_line(size_t ip) {
+    const PicoPhpDebugLine *best = NULL;
+    for (unsigned i = 0; i < picophp_program_debug_line_count; i++) {
+        if ((size_t)picophp_program_debug_lines[i].ip <= ip) {
+            best = &picophp_program_debug_lines[i];
+        } else {
+            break;
+        }
+    }
+    return best;
+}
+
+static void picophp_print_fatal_error(VmStatus st, size_t ip) {
+    const PicoPhpDebugLine *line = picophp_find_debug_line(ip);
+    if (line != NULL && line->file_id < picophp_program_debug_file_count) {
+        printf(
+            "\nFatal VM error: %s",
+            vm_status_name(st)
+        );
+        printf(
+            "\nat %s",
+            picophp_program_debug_files[line->file_id]
+        );
+        printf(
+            "\nline:%u\nip=%zu\n",
+            (unsigned)line->line,
+            ip
+        );
+        return;
+    }
+    printf("\nFatal VM error: %s at ip=%zu\n", vm_status_name(st), ip);
+}
+#else
+static void picophp_print_fatal_error(VmStatus st, size_t ip) {
+    printf("\nFatal VM error: %s at ip=%zu\n", vm_status_name(st), ip);
+}
+#endif
+
 int main(void) {
 #ifdef PICOPHP_ON_PICO
     stdio_init_all();
@@ -1980,7 +2019,7 @@ int main(void) {
     if (st != VM_OK) {
 #ifdef PICOPHP_ON_PICO
         while (true) {
-            printf("\nFatal VM error: %s at ip=%zu\n", vm_status_name(st), vm.ip);
+            picophp_print_fatal_error(st, vm.ip);
             fflush(stdout);
             picophp_debug_led_set(true);
             sleep_ms(150);
@@ -1988,7 +2027,7 @@ int main(void) {
             sleep_ms(850);
         }
 #else
-        printf("\nFatal VM error: %s at ip=%zu\n", vm_status_name(st), vm.ip);
+        picophp_print_fatal_error(st, vm.ip);
         return 1;
 #endif
     }

@@ -108,8 +108,9 @@ function require_file(string $path): void {
     }
 }
 
-function write_pico_cmake(string $outDir, bool $usbKeyboard = false): void {
+function write_pico_cmake(string $outDir, bool $usbKeyboard = false, bool $debug = false): void {
     $picophpUsbKeyboard = $usbKeyboard ? "1" : "0";
+    $debugFlag = $debug ? "1" : "0";
     $cmake = <<<'CMAKE'
 cmake_minimum_required(VERSION 3.13)
 
@@ -127,6 +128,7 @@ add_executable(picophp_app
 )
 
 set(PICOPHP_USB_KEYBOARD @PICOPHP_USB_KEYBOARD@)
+set(PICOPHP_PROGRAM_HAS_DEBUG_LINES @PICOPHP_PROGRAM_HAS_DEBUG_LINES@)
 
 if(PICOPHP_USB_KEYBOARD)
     target_sources(picophp_app PRIVATE
@@ -180,6 +182,7 @@ pico_add_extra_outputs(picophp_app)
 CMAKE;
 
     $cmake = str_replace('@PICOPHP_USB_KEYBOARD@', $picophpUsbKeyboard, $cmake);
+    $cmake = str_replace('@PICOPHP_PROGRAM_HAS_DEBUG_LINES@', $debugFlag, $cmake);
     file_put_contents($outDir . DIRECTORY_SEPARATOR . 'CMakeLists.txt', $cmake);
 
     $import = <<<'IMPORT'
@@ -235,6 +238,7 @@ function main(array $argv): int {
     $pico = false;
     $cc = getenv('CC') ?: 'cc';
     $usbInput = false;
+    $debug = false;
     $input = null;
 
     for ($i = 1; $i < count($argv); $i++) {
@@ -253,6 +257,8 @@ function main(array $argv): int {
                 throw new BuildError('missing value for --out');
             }
             $outDir = $argv[$i];
+        } elseif ($arg === '--debug') {
+            $debug = true;
         } elseif (str_starts_with($arg, '--out=')) {
             $outDir = substr($arg, strlen('--out='));
         } elseif ($arg === '--cc') {
@@ -284,8 +290,11 @@ function main(array $argv): int {
     require_file($vm);
     require_file($input);
 
+    mkdir($outDir);
+
     if ($usbInput === true) {
         $usbInput = true;
+        touch($outDir . '/tusb_config.h');
         file_put_contents($outDir . '/tusb_config.h', <<<'C'
 #ifndef _TUSB_CONFIG_H_
 #define _TUSB_CONFIG_H_
@@ -308,23 +317,7 @@ function main(array $argv): int {
 #endif
 C);
 
-        file_put_contents($outDir . '/usb_descriptors.c', <<<'C'
-#include <string.h>
-#include "tusb.h"
-
-enum {
-    ITF_NUM_HID,
-    ITF_NUM_TOTAL
-};
-
-#define EPNUM_HID 0x81
-
-uint8_t const desc_hid_report[] = {
-    TUD_HID_REPORT_DESC_KEYBOARD()
-};
-
-/* 以下 descriptor 本体 */
-C);
+        touch($outDir . '/usb_descriptors.c');
         file_put_contents($outDir . '/usb_descriptors.c', <<<'C'
 #include "tusb.h"
 
