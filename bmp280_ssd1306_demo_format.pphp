@@ -18,6 +18,7 @@ i2c_init(I2C_BUS, I2C_SDA, I2C_SCL, I2C_BAUD);
 print("after i2c_init\n");
 
 adc_init(26);
+pwm_init(15, 1000);
 
 print("BMP chip id: ", bmp280_chip_id(I2C_BUS, BMP_ADDR), "\n");
 //$i = 0;
@@ -44,6 +45,11 @@ while (true) {
     // VREF=3.3V想定。mVで返す。
     $mv = ($raw * 3300) / 4095;
     $ms = format_dec1($mv);
+
+    $raw = adc_read_gpio(26);       // 0..4095
+    $duty = ($raw * 65535) / 4095;  // 0..65535
+
+    pwm_write(15, $duty);
 
     print("T=", $ts, "C\n");
     print("P=", $ps, "hPa\n");
