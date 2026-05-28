@@ -54,6 +54,7 @@ while (true) {
     print("T=", $ts, "C\n");
     print("P=", $ps, "hPa\n");
     print("H=", $hs, "%\n");
+    print("V=", $ms, "mV\n");
 
     ssd1306_clear_chunked(I2C_BUS, OLED_ADDR);
 

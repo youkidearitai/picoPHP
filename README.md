@@ -35,6 +35,30 @@ while (true) {
 }
 ```
 
+Compile
+
+```
+$ php picophp_build_pico2w_i2c.php blink_pico2w.pphp --pico --debug --out  blink
+
+Generated Pico SDK project in: blink
+Next:
+  cd 'blink'
+  export PICO_SDK_PATH=$HOME/pico/pico-sdk
+  mkdir -p build && cd build
+  cmake -DPICO_BOARD=pico2_w -DPICO_PLATFORM=rp2350 .. && make -j4
+
+$ cd blink
+$ export PICO_SDK_PATH=$HOME/pico/pico-sdk
+$ mkdir -p build
+$ cd build
+$ cmake -DPICO_BOARD=pico2_w -DPICO_PLATFORM=rp2350 .. && make -j4
+```
+
+Copy to Raspberry Pi Pico 2W
+```
+$ cp picophp_app.uf2 /Volumes/RP2350/
+```
+
 Blink Raspberry Pi Pico 2W's LED.
 
 ### Using SSD1306
@@ -45,12 +69,12 @@ Blink Raspberry Pi Pico 2W's LED.
 - GPIO 7 -> SSD1306 SDL
 
 ```
-php picophp_build_pico2w_i2c.php ssd1306_hello_v2.pphp --pico --out pico2w_ssd1306
-cd 'pico2w_ssd1306'
-export PICO_SDK_PATH=$HOME/pico/pico-sdk
-mkdir -p build && cd build
-cmake -DPICO_BOARD=pico2_w -DPICO_PLATFORM=rp2350 .. && make -j4
-cp picophp_app.uf2 /Volumes/RP2350/
+$ php picophp_build_pico2w_i2c.php ssd1306_hello_v2.pphp --pico --out pico2w_ssd1306
+$ cd 'pico2w_ssd1306'
+$ export PICO_SDK_PATH=$HOME/pico/pico-sdk
+$ mkdir -p build && cd build
+$ cmake -DPICO_BOARD=pico2_w -DPICO_PLATFORM=rp2350 .. && make -j4
+$ cp picophp_app.uf2 /Volumes/RP2350/
 ```
 
 ## LICENSE
