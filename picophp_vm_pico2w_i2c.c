@@ -824,18 +824,19 @@ static bool native_rgb_keypad_led_show(Vm *vm, int argc, Value *args, Value *ret
     printf("[rgb_keypad_led_show] write len=%d\n", p);
     fflush(stdout);
 
+    gpio_put((uint)picophp_rgb_keypad_cs_gpio, 0);
 
-    bool ok = false;
-    if ((ok = picophp_spi_write_raw(picophp_rgb_keypad_spi_bus, buf, (size_t)p) != true)) {
-        printf("[rgb_keypad_led_show] spi write failed\n");
-        fflush(stdout);
-        vm->status = VM_ERR_BAD_NATIVE;
-        return false;
-    }
+    bool ok = picophp_spi_write_raw(
+            picophp_rgb_keypad_spi_bus,
+            buf,
+            (size_t)p
+            );
 
     gpio_put((uint)picophp_rgb_keypad_cs_gpio, 1);
 
     if (!ok) {
+        printf("[rgb_keypad_led_show] spi write failed\n");
+        fflush(stdout);
         vm->status = VM_ERR_BAD_NATIVE;
         return false;
     }
