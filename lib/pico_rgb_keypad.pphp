@@ -1,13 +1,38 @@
 <?php
 // lib/pico_rgb_keypad.pphp
+//
+// Pimoroni Pico RGB Keypad Base support for PicoPHP.
+//
+// Key input:
+//   TCA9555 I/O expander on I2C address 0x20.
+// LED output:
+//   APA102 LEDs via SPI. This file assumes the Pico RGB Keypad Base
+//   LED clock/data pins are GP14/GP15, i.e. SPI1 SCK/TX.
+//
+// Native functions required:
+//   spi_init($bus, $sck_gpio, $mosi_gpio, $baud)
+//   spi_write($bus, $data)
+//   rgb_keypad_led_init($bus, $sck_gpio, $mosi_gpio, $baud)
+//   rgb_keypad_led_set($index, $r, $g, $b)
+//   rgb_keypad_led_show()
+//   rgb_keypad_led_clear()
 
 const PICO_RGB_KEYPAD_ADDR = 32; // 0x20
 
+const RGB_KEYPAD_SPI_BUS = 0;
+const RGB_KEYPAD_SPI_CS = 17;
+const RGB_KEYPAD_SPI_SCK = 18;
+const RGB_KEYPAD_SPI_MOSI = 19;
+const RGB_KEYPAD_SPI_BAUD = 4000000;
+
+// TCA9555 register addresses.
+const TCA9555_INPUT0 = 0;
+const TCA9555_CONFIG0 = 6;
+
 function rgb_keypad_init($bus, $addr) {
-    // TCA9555 config register:
+    // Configure all 16 TCA9555 pins as input.
+    // Register 0x06 = config port 0, 0x07 = config port 1.
     // 1=input, 0=output.
-    // register 0x06 = config port 0
-    // register 0x07 = config port 1
     i2c_write($bus, $addr, "\x06\xff\xff");
     sleep_ms(5);
 }
@@ -20,11 +45,35 @@ function rgb_keypad_raw($bus, $addr) {
 function rgb_keypad_read($bus, $addr) {
     $raw = rgb_keypad_raw($bus, $addr);
 
-    // ボタンはactive-low想定:
-    // 離している=1, 押している=0
+    // Buttons are active-low.
     return (65535 - $raw) & 65535;
 }
 
 function rgb_keypad_pressed($mask, $key) {
     return (($mask >> $key) & 1) != 0;
+}
+
+function rgb_keypad_leds_init() {
+    rgb_keypad_led_init(
+        RGB_KEYPAD_SPI_BUS,
+        RGB_KEYPAD_SPI_CS,
+        RGB_KEYPAD_SPI_SCK,
+        RGB_KEYPAD_SPI_MOSI,
+        RGB_KEYPAD_SPI_BAUD
+    );
+    rgb_keypad_led_clear();
+    rgb_keypad_led_show();
+}
+
+function rgb_keypad_leds_set($key, $r, $g, $b) {
+    rgb_keypad_led_set($key, $r, $g, $b);
+}
+
+function rgb_keypad_leds_show() {
+    rgb_keypad_led_show();
+}
+
+function rgb_keypad_leds_clear() {
+    rgb_keypad_led_clear();
+    rgb_keypad_led_show();
 }

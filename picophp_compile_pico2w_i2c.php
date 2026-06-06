@@ -123,6 +123,12 @@ final class NativeId {
     public const NATIVE_PWM_INIT = 31;
     public const NATIVE_PWM_WRITE = 32;
     public const NATIVE_PWM_WRITE_PERCENT = 33;
+    public const NATIVE_SPI_INIT = 34;
+    public const NATIVE_SPI_WRITE = 35;
+    public const NATIVE_RGB_KEYPAD_LED_INIT = 36;
+    public const NATIVE_RGB_KEYPAD_LED_SET = 37;
+    public const NATIVE_RGB_KEYPAD_LED_SHOW = 38;
+    public const NATIVE_RGB_KEYPAD_LED_CLEAR = 39;
 }
 
 const NATIVE_IDS = [
@@ -160,6 +166,12 @@ const NATIVE_IDS = [
     'pwm_init' => NativeId::NATIVE_PWM_INIT,
     'pwm_write' => NativeId::NATIVE_PWM_WRITE,
     'pwm_write_percent' => NativeId::NATIVE_PWM_WRITE_PERCENT,
+    'spi_init' => NativeId::NATIVE_SPI_INIT,
+    'spi_write' => NativeId::NATIVE_SPI_WRITE,
+    'rgb_keypad_led_init' => NativeId::NATIVE_RGB_KEYPAD_LED_INIT,
+    'rgb_keypad_led_set' => NativeId::NATIVE_RGB_KEYPAD_LED_SET,
+    'rgb_keypad_led_show' => NativeId::NATIVE_RGB_KEYPAD_LED_SHOW,
+    'rgb_keypad_led_clear' => NativeId::NATIVE_RGB_KEYPAD_LED_CLEAR,
 ];
 
 const DEFAULT_CONSTANTS = [
@@ -201,6 +213,12 @@ const NATIVE_NAMES = [
     31 => 'pwm_init',
     32 => 'pwm_write',
     33 => 'pwm_write_percent',
+    34 => 'spi_init',
+    35 => 'spi_write',
+    36 => 'rgb_keypad_led_init',
+    37 => 'rgb_keypad_led_set',
+    38 => 'rgb_keypad_led_show',
+    39 => 'rgb_keypad_led_clear',
 ];
 
 final class Token {

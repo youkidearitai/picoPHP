@@ -139,6 +139,7 @@ set(PICOPHP_LIBS
     hardware_i2c
     hardware_adc
     hardware_pwm
+    hardware_spi
 )
 
 if(PICOPHP_BOARD STREQUAL "pico_w")

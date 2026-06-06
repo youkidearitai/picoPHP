@@ -36,6 +36,7 @@
 #include "hardware/i2c.h"
 #include "hardware/adc.h"
 #include "hardware/pwm.h"
+#include "hardware/spi.h"
 #if __has_include("pico/cyw43_arch.h")
 #include "pico/cyw43_arch.h"
 #endif
@@ -474,7 +475,46 @@ typedef enum {
     NATIVE_PWM_INIT = 31,
     NATIVE_PWM_WRITE = 32,
     NATIVE_PWM_WRITE_PERCENT = 33,
+    NATIVE_SPI_INIT = 34,
+    NATIVE_SPI_WRITE = 35,
+    NATIVE_RGB_KEYPAD_LED_INIT = 36,
+    NATIVE_RGB_KEYPAD_LED_SET = 37,
+    NATIVE_RGB_KEYPAD_LED_SHOW = 38,
+    NATIVE_RGB_KEYPAD_LED_CLEAR = 39,
 } NativeId;
+
+#ifdef PICOPHP_ON_PICO
+static spi_inst_t *picophp_spi_from_bus(int bus) {
+    if (bus == 0) return spi0;
+    if (bus == 1) return spi1;
+    return NULL;
+}
+
+static int picophp_rgb_keypad_spi_bus = 0;
+static int picophp_rgb_keypad_cs_gpio = 17;
+
+static uint8_t picophp_rgb_keypad_r[16];
+static uint8_t picophp_rgb_keypad_g[16];
+static uint8_t picophp_rgb_keypad_b[16];
+static uint8_t picophp_rgb_keypad_brightness[16];
+
+static void picophp_rgb_keypad_clear_buf(void) {
+    for (int i = 0; i < 16; i++) {
+        picophp_rgb_keypad_r[i] = 0;
+        picophp_rgb_keypad_g[i] = 0;
+        picophp_rgb_keypad_b[i] = 0;
+        picophp_rgb_keypad_brightness[i] = 31;
+    }
+}
+
+static bool picophp_spi_write_raw(int bus, const uint8_t *data, size_t len) {
+    spi_inst_t *spi = picophp_spi_from_bus(bus);
+    if (spi == NULL) {
+        return false;
+    }
+    return spi_write_blocking(spi, data, len) == (int)len;
+}
+#endif
 
 typedef enum {
     VM_OK = 0,
@@ -581,6 +621,247 @@ static bool adc_gpio_to_channel(int gpio, int *channel) {
 
 static bool pwm_gpio_valid(int gpio) {
     return gpio >= 0 && gpio <= 29;
+}
+
+static bool native_spi_init(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    if (argc != 4) { vm->status = VM_ERR_BAD_NATIVE; return false; }
+    if (!value_is_number(args[0]) || !value_is_number(args[1]) ||
+        !value_is_number(args[2]) || !value_is_number(args[3])) {
+        vm->status = VM_ERR_TYPE; return false;
+    }
+    int bus = value_as_int(args[0]);
+    int sck = value_as_int(args[1]);
+    int mosi = value_as_int(args[2]);
+    int baud = value_as_int(args[3]);
+    spi_inst_t *spi = picophp_spi_from_bus(bus);
+    if (spi == NULL || baud <= 0) { vm->status = VM_ERR_TYPE; return false; }
+    spi_init(spi, (uint)baud);
+    gpio_set_function((uint)sck, GPIO_FUNC_SPI);
+    gpio_set_function((uint)mosi, GPIO_FUNC_SPI);
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm; (void)argc; (void)args; (void)ret; return false;
+#endif
+}
+
+static bool native_spi_write(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    if (argc != 2) { vm->status = VM_ERR_BAD_NATIVE; return false; }
+    if (!value_is_number(args[0]) || args[1].type != VAL_STRING) {
+        vm->status = VM_ERR_TYPE; return false;
+    }
+    int bus = value_as_int(args[0]);
+    if (!picophp_spi_write_raw(bus, args[1].as.s.data, args[1].as.s.len)) {
+        vm->status = VM_ERR_BAD_NATIVE; return false;
+    }
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm; (void)argc; (void)args; (void)ret; return false;
+#endif
+}
+
+static bool native_rgb_keypad_led_init(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    if (argc != 5) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!value_is_number(args[0]) ||
+        !value_is_number(args[1]) ||
+        !value_is_number(args[2]) ||
+        !value_is_number(args[3]) ||
+        !value_is_number(args[4])) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    int bus = value_as_int(args[0]);
+    int cs = value_as_int(args[1]);
+    int sck = value_as_int(args[2]);
+    int mosi = value_as_int(args[3]);
+    int baud = value_as_int(args[4]);
+
+    spi_inst_t *spi = picophp_spi_from_bus(bus);
+    if (spi == NULL || baud <= 0) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    spi_init(spi, (uint)baud);
+
+    gpio_set_function((uint)cs, GPIO_FUNC_SIO);
+    gpio_set_dir((uint)cs, GPIO_OUT);
+    gpio_put((uint)cs, 1);
+
+    gpio_set_function((uint)sck, GPIO_FUNC_SPI);
+    gpio_set_function((uint)mosi, GPIO_FUNC_SPI);
+
+    picophp_rgb_keypad_spi_bus = bus;
+    picophp_rgb_keypad_cs_gpio = cs;
+    picophp_rgb_keypad_clear_buf();
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
+}
+
+static bool native_rgb_keypad_led_set(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    printf("[rgb_keypad_led_set] argc=%d\n", argc);
+    fflush(stdout);
+
+    if (argc != 4) {
+        printf("[rgb_keypad_led_set] bad argc\n");
+        fflush(stdout);
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    printf("[rgb_keypad_led_set] types=%d,%d,%d,%d\n",
+        args[0].type,
+        args[1].type,
+        args[2].type,
+        args[3].type
+    );
+    fflush(stdout);
+
+    if (!value_is_number(args[0]) ||
+        !value_is_number(args[1]) ||
+        !value_is_number(args[2]) ||
+        !value_is_number(args[3])) {
+        printf("[rgb_keypad_led_set] type error in numeric check\n");
+        fflush(stdout);
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    int index = value_as_int(args[0]);
+    int r = value_as_int(args[1]);
+    int g = value_as_int(args[2]);
+    int b = value_as_int(args[3]);
+
+    printf("[rgb_keypad_led_set] values=%d,%d,%d,%d\n", index, r, g, b);
+    fflush(stdout);
+
+    if (index < 0 || index >= 16) {
+        printf("[rgb_keypad_led_set] bad index=%d\n", index);
+        fflush(stdout);
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    if (r < 0) r = 0;
+    if (r > 255) r = 255;
+    if (g < 0) g = 0;
+    if (g > 255) g = 255;
+    if (b < 0) b = 0;
+    if (b > 255) b = 255;
+
+    picophp_rgb_keypad_r[index] = (uint8_t)r;
+    picophp_rgb_keypad_g[index] = (uint8_t)g;
+    picophp_rgb_keypad_b[index] = (uint8_t)b;
+    picophp_rgb_keypad_brightness[index] = 16;
+
+    printf("[rgb_keypad_led_set] ok\n");
+    fflush(stdout);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
+}
+
+static bool native_rgb_keypad_led_show(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    (void)args;
+
+    printf("[rgb_keypad_led_show] argc=%d\n", argc);
+    fflush(stdout);
+
+    if (argc != 0) {
+        printf("[rgb_keypad_led_show] bad argc\n");
+        fflush(stdout);
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    uint8_t buf[4 + (16 * 4) + 4];
+    int p = 0;
+
+    buf[p++] = 0x00;
+    buf[p++] = 0x00;
+    buf[p++] = 0x00;
+    buf[p++] = 0x00;
+
+    for (int i = 0; i < 16; i++) {
+        uint8_t br = picophp_rgb_keypad_brightness[i] & 31;
+        buf[p++] = (uint8_t)(0xe0 | br);
+        buf[p++] = picophp_rgb_keypad_b[i];
+        buf[p++] = picophp_rgb_keypad_g[i];
+        buf[p++] = picophp_rgb_keypad_r[i];
+    }
+
+    buf[p++] = 0xff;
+    buf[p++] = 0xff;
+    buf[p++] = 0xff;
+    buf[p++] = 0xff;
+
+    printf("[rgb_keypad_led_show] write len=%d\n", p);
+    fflush(stdout);
+
+
+    bool ok = false;
+    if ((ok = picophp_spi_write_raw(picophp_rgb_keypad_spi_bus, buf, (size_t)p) != true)) {
+        printf("[rgb_keypad_led_show] spi write failed\n");
+        fflush(stdout);
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    gpio_put((uint)picophp_rgb_keypad_cs_gpio, 1);
+
+    if (!ok) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    printf("[rgb_keypad_led_show] ok\n");
+    fflush(stdout);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
+}
+
+static bool native_rgb_keypad_led_clear(Vm *vm, int argc, Value *args, Value *ret) {
+    (void)args;
+    if (argc != 0) { vm->status = VM_ERR_BAD_NATIVE; return false; }
+#ifdef PICOPHP_ON_PICO
+    picophp_rgb_keypad_clear_buf();
+#endif
+    ret->type = VAL_NULL;
+    return true;
 }
 
 static bool native_pwm_init(Vm *vm, int argc, Value *args, Value *ret) {
@@ -1983,6 +2264,42 @@ static bool call_native(Vm *vm, uint8_t id, uint8_t argc) {
 
         case NATIVE_PWM_WRITE_PERCENT:
             if (!native_pwm_write_percent(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_SPI_INIT:
+            if (!native_spi_init(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_SPI_WRITE:
+            if (!native_spi_write(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_RGB_KEYPAD_LED_INIT:
+            if (!native_rgb_keypad_led_init(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_RGB_KEYPAD_LED_SET:
+            if (!native_rgb_keypad_led_set(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_RGB_KEYPAD_LED_SHOW:
+            if (!native_rgb_keypad_led_show(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_RGB_KEYPAD_LED_CLEAR:
+            if (!native_rgb_keypad_led_clear(vm, argc, args, &ret)) {
                 return false;
             }
             break;

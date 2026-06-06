@@ -1,0 +1,14 @@
+<?php
+require_once "lib/pico_rgb_keypad.pphp";
+
+rgb_keypad_leds_init();
+
+rgb_keypad_leds_set(0, 255, 0, 0);
+rgb_keypad_leds_set(1, 0, 255, 0);
+rgb_keypad_leds_set(2, 0, 0, 255);
+rgb_keypad_leds_set(3, 255, 255, 255);
+rgb_keypad_leds_show();
+
+while (true) {
+    sleep_ms(1000);
+}
