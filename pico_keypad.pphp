@@ -1,0 +1,149 @@
+<?php
+require_once "lib/keyboard.pphp";
+require_once "lib/pico_rgb_keypad.pphp";
+
+const I2C_BUS = 0;
+const I2C_SDA = 4;
+const I2C_SCL = 5;
+const I2C_BAUD = 100000;
+
+
+keyboard_init();
+
+i2c_init(I2C_BUS, I2C_SDA, I2C_SCL, I2C_BAUD);
+rgb_keypad_init(I2C_BUS, PICO_RGB_KEYPAD_ADDR);
+rgb_keypad_leds_init();
+
+$prev = 0;
+
+$xe8 = 232;
+$x99 = (9 * 16) + 9;
+$x39 = 57;
+$x29 = 41;
+$xd8 = $xe8 - 16;
+$x79 = (7 * 16) + 9;
+$x98 = (9 * 16) + 8;
+$xc8 = (12 * 16) + 8;
+$xc0 = (12 * 16);
+$x31 = (3 * 16) + 1;
+$x69 = (6 * 16) + 9;
+$x90 = (9 * 16);
+$x49 = (4 * 16) + 9;
+$xb0 = (11 * 16);
+$x51 = (5 * 16) + 1;
+$xe0 = (14 * 16);
+$xa8 = (10 * 16) + 8;
+$x81 = (8 * 16) + 1;
+$x61 = (6 * 16) + 1;
+
+// Initial colors.
+rgb_keypad_leds_set(0, $xe8, $x39, $x29);
+rgb_keypad_leds_set(1, $xe8, $x99, $x29);
+rgb_keypad_leds_set(2, $xd8, $xe8, $x29);
+rgb_keypad_leds_set(3, $x79, $xe8, $x29);
+rgb_keypad_leds_set(4, $x29, $xe8, $x39);
+rgb_keypad_leds_set(5, $x29, $xe8, $x98);
+
+rgb_keypad_leds_set(6, $x29, $xd8, $xe8);
+rgb_keypad_leds_set(7, $x29, $x79, $xe8);
+rgb_keypad_leds_set(8, $x39, $x29, $xe8);
+rgb_keypad_leds_set(9, $x98, $x29, $xe8);
+rgb_keypad_leds_set(10,$xe8, $x29, $xd8);
+rgb_keypad_leds_set(11,$xe8, $x29, $x79);
+rgb_keypad_leds_show();
+
+sleep_ms(1000);
+
+rgb_keypad_led_clear();
+
+while (true) {
+    $mask = rgb_keypad_read(I2C_BUS, PICO_RGB_KEYPAD_ADDR);
+    $new = $mask & (65535 - $prev);
+
+    if (rgb_keypad_pressed($new, 0)) {
+        rgb_keypad_leds_set(0, $xe8, $x39, $x29);
+        keyboard_key(KEY_0);
+    }
+
+    if (rgb_keypad_pressed($new, 1)) {
+        rgb_keypad_leds_set(1, $xe8, $x81, $x29);
+        keyboard_key(KEY_1);
+    }
+
+    if (rgb_keypad_pressed($new, 2)) {
+        rgb_keypad_leds_set(2, $xe8, $xc8, $x29);
+        keyboard_key(KEY_2);
+    }
+
+    if (rgb_keypad_pressed($new, 3)) {
+        rgb_keypad_leds_set(3, $xc0, $xe8, $x29);
+        keyboard_key(KEY_3);
+    }
+
+    if (rgb_keypad_pressed($new, 4)) {
+        rgb_keypad_leds_set(4, $x79, $xe8, $x29);
+        keyboard_key(KEY_4);
+    }
+
+    if (rgb_keypad_pressed($new, 5)) {
+        rgb_keypad_leds_set(5, $x31, $xe8, $x29);
+        keyboard_key(KEY_5);
+    }
+
+    if (rgb_keypad_pressed($new, 6)) {
+        rgb_keypad_leds_set(6, $x29, $xe8, $x69);
+        keyboard_key(KEY_6);
+    }
+
+    if (rgb_keypad_pressed($new, 7)) {
+        rgb_keypad_leds_set(7, $x29, $xe8, $xb0);
+        keyboard_key(KEY_7);
+    }
+
+    if (rgb_keypad_pressed($new, 8)) {
+        rgb_keypad_leds_set(8, $x29, $xd8, $xe8);
+        keyboard_key(KEY_8);
+    }
+
+    if (rgb_keypad_pressed($new, 9)) {
+        rgb_keypad_leds_set(9, $x29, $x90, $xe8);
+        keyboard_key(KEY_9);
+    }
+
+    if (rgb_keypad_pressed($new, 10)) {
+        rgb_keypad_leds_set(10,$x29, $x49, $xe8);
+        keyboard_key(KEY_A);
+    }
+
+    if (rgb_keypad_pressed($new, 11)) {
+        rgb_keypad_leds_set(11,$x51, $x29, $xe8);
+        keyboard_key(KEY_B);
+    }
+
+    if (rgb_keypad_pressed($new, 12)) {
+        rgb_keypad_leds_set(12,$x98, $x29, $xe8);
+        keyboard_key(KEY_C);
+    }
+
+    if (rgb_keypad_pressed($new, 13)) {
+        rgb_keypad_leds_set(13,$xe0, $x29, $xe8);
+        keyboard_key(KEY_D);
+    }
+
+    if (rgb_keypad_pressed($new, 14)) {
+        rgb_keypad_leds_set(14,$xe8, $x29, $xa8);
+        keyboard_key(KEY_E);
+    }
+
+    if (rgb_keypad_pressed($new, 15)) {
+        rgb_keypad_leds_set(15,$xe8, $x29, $x61);
+        keyboard_key(KEY_F);
+    }
+
+    $prev = $mask;
+
+    rgb_keypad_leds_show();
+    sleep_ms(20);
+    rgb_keypad_led_clear();
+    arena_reset();
+}
