@@ -481,6 +481,8 @@ typedef enum {
     NATIVE_RGB_KEYPAD_LED_SET = 37,
     NATIVE_RGB_KEYPAD_LED_SHOW = 38,
     NATIVE_RGB_KEYPAD_LED_CLEAR = 39,
+
+    NATIVE_SLEEP_US = 40,
 } NativeId;
 
 #ifdef PICOPHP_ON_PICO
@@ -2118,6 +2120,11 @@ static bool call_native(Vm *vm, uint8_t id, uint8_t argc) {
         case NATIVE_SLEEP_MS:
             if (argc != 1) goto bad_arity;
             native_sleep_ms(value_as_int(args[0]));
+            break;
+
+        case NATIVE_SLEEP_US:
+            if (argc != 1) goto bad_arity;
+            sleep_us(value_as_int(args[0]));
             break;
 
         case NATIVE_GPIO_MODE:

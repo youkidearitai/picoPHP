@@ -1,0 +1,25 @@
+<?php
+
+$plus = 6;
+$minus = 7;
+
+$on_time = 9900;
+$off_time = 100;
+
+while (true) {
+	/*
+	 * 9.9ms + 0.1ms + 9.9ms + 0.1ms = 20ms = 50Hz
+	 */
+	gpio_write($plus, HIGH);
+	gpio_write($minus, LOW);
+	sleep_us($on_time);
+	gpio_write($plus, LOW);
+	gpio_write($minus, LOW);
+	sleep_us($off_time);
+	gpio_write($plus, LOW);
+	gpio_write($minus, HIGH);
+	sleep_us($on_time);
+	gpio_write($plus, LOW);
+	gpio_write($minus, LOW);
+	sleep_us($off_time);
+}
