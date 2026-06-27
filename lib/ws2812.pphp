@@ -1,0 +1,34 @@
+<?php
+require_once "ledstrip.pphp";
+
+function ws2812_begin($pin, $count) {
+    ledstrip_begin_ws2812($pin, $count);
+}
+
+function ws2812_set($index, $r, $g, $b) {
+    ledstrip_set($index, $r, $g, $b);
+}
+
+function ws2812_show() {
+    ledstrip_show();
+}
+
+function ws2812_clear() {
+    ledstrip_clear();
+}
+
+function ws2812_fill($r, $g, $b) {
+    ledstrip_fill($r, $g, $b);
+}
+
+function ws2812_rgb($r, $g, $b) {
+    return (($r & 255) << 16) | (($g & 255) << 8) | ($b & 255);
+}
+
+function ws2812_set_color($index, $color) {
+    $r = ($color >> 16) & 255;
+    $g = ($color >> 8) & 255;
+    $b = $color & 255;
+
+    ws2812_set($index, $r, $g, $b);
+}

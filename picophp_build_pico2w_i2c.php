@@ -111,6 +111,7 @@ function require_file(string $path): void {
 function write_pico_cmake(string $outDir, bool $usbKeyboard = false, bool $debug = true, string $board = 'pico'): void {
     $picophpUsbKeyboard = $usbKeyboard ? "1" : "0";
     $debugFlag = $debug ? "1" : "0";
+    $pioPath = __DIR__ . '/pio/ledstrip_ws2812.pio';
 
     $cmake = <<<'CMAKE'
 cmake_minimum_required(VERSION 3.13)
@@ -132,8 +133,10 @@ add_executable(picophp_app
 
 set(PICOPHP_USB_KEYBOARD @PICOPHP_USB_KEYBOARD@)
 set(PICOPHP_PROGRAM_HAS_DEBUG_LINES @PICOPHP_PROGRAM_HAS_DEBUG_LINES@)
+pico_generate_pio_header(picophp_app @pioPath@)
 
 set(PICOPHP_LIBS
+    hardware_pio
     pico_stdlib
     hardware_gpio
     hardware_i2c
@@ -208,6 +211,7 @@ CMAKE;
     $cmake = str_replace('@PICOPHP_USB_KEYBOARD@', $picophpUsbKeyboard, $cmake);
     $cmake = str_replace('@PICOPHP_PROGRAM_HAS_DEBUG_LINES@', $debugFlag, $cmake);
     $cmake = str_replace('@PICOPHP_BOARD@', $board, $cmake);
+    $cmake = str_replace('@pioPath@', $pioPath, $cmake);
     file_put_contents($outDir . DIRECTORY_SEPARATOR . 'CMakeLists.txt', $cmake);
 
     $import = <<<'IMPORT'

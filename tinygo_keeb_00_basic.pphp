@@ -1,0 +1,22 @@
+<?php
+require_once "lib/ws2812.pphp";
+
+ws2812_begin(1, 1);
+
+while (true) {
+    ws2812_set(0, 255, 0, 0);
+    ws2812_show();
+    sleep_ms(300);
+
+    ws2812_set(0, 0, 255, 0);
+    ws2812_show();
+    sleep_ms(300);
+
+    ws2812_set(0, 0, 0, 255);
+    ws2812_show();
+    sleep_ms(300);
+
+    ws2812_clear();
+    ws2812_show();
+    sleep_ms(300);
+}

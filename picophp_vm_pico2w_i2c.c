@@ -37,9 +37,139 @@
 #include "hardware/adc.h"
 #include "hardware/pwm.h"
 #include "hardware/spi.h"
+#include "hardware/pio.h"
+#include "ledstrip_ws2812.pio.h"
 #if __has_include("pico/cyw43_arch.h")
 #include "pico/cyw43_arch.h"
 #endif
+#endif
+
+#ifdef PICOPHP_ON_PICO
+
+#ifndef PICOPHP_LEDSTRIP_MAX_PIXELS
+#define PICOPHP_LEDSTRIP_MAX_PIXELS 64
+#endif
+
+#define PICOPHP_LEDSTRIP_DRIVER_WS2812 1
+#define PICOPHP_LEDSTRIP_WS2812_FREQ 800000.0f
+
+typedef struct {
+    bool inited;
+    int driver;
+    uint pin;
+    uint count;
+
+    PIO pio;
+    uint sm;
+    uint offset;
+
+    uint8_t r[PICOPHP_LEDSTRIP_MAX_PIXELS];
+    uint8_t g[PICOPHP_LEDSTRIP_MAX_PIXELS];
+    uint8_t b[PICOPHP_LEDSTRIP_MAX_PIXELS];
+} PicoPhpLedStrip;
+
+static PicoPhpLedStrip picophp_ledstrip = {
+    .inited = false,
+    .driver = 0,
+    .pin = 0,
+    .count = 0,
+    .pio = pio0,
+    .sm = 0,
+    .offset = 0,
+};
+
+static bool picophp_gpio_pin_valid(int pin) {
+#if defined(NUM_BANK0_GPIOS)
+    return pin >= 0 && pin < NUM_BANK0_GPIOS;
+#else
+    return pin >= 0 && pin <= 29;
+#endif
+}
+
+static uint8_t picophp_u8_clamp_from_int(int v) {
+    if (v < 0) {
+        return 0;
+    }
+    if (v > 255) {
+        return 255;
+    }
+    return (uint8_t)v;
+}
+
+static inline uint32_t picophp_ledstrip_grb_u32(uint8_t r, uint8_t g, uint8_t b) {
+    return ((uint32_t)g << 16) | ((uint32_t)r << 8) | (uint32_t)b;
+}
+
+static inline void picophp_ledstrip_put_pixel(uint32_t grb) {
+    /*
+     * PIO autopulls 24 bits. The official Pico WS2812 example shifts
+     * the 24-bit GRB value left by 8 before writing to the FIFO.
+     */
+    pio_sm_put_blocking(
+        picophp_ledstrip.pio,
+        picophp_ledstrip.sm,
+        grb << 8u
+    );
+}
+
+static void picophp_ledstrip_buffer_clear(void) {
+    for (uint i = 0; i < PICOPHP_LEDSTRIP_MAX_PIXELS; i++) {
+        picophp_ledstrip.r[i] = 0;
+        picophp_ledstrip.g[i] = 0;
+        picophp_ledstrip.b[i] = 0;
+    }
+}
+
+static bool picophp_ledstrip_program_start(uint pin) {
+    /*
+     * First implementation uses fixed pio0/sm0.
+     * Later this can be changed to pio_claim_free_sm_and_add_program...
+     */
+    picophp_ledstrip.pio = pio0;
+    picophp_ledstrip.sm = 0;
+
+    if (!pio_can_add_program(picophp_ledstrip.pio, &ledstrip_ws2812_program)) {
+        return false;
+    }
+
+    picophp_ledstrip.offset = pio_add_program(
+        picophp_ledstrip.pio,
+        &ledstrip_ws2812_program
+    );
+
+    ledstrip_ws2812_program_init(
+        picophp_ledstrip.pio,
+        picophp_ledstrip.sm,
+        picophp_ledstrip.offset,
+        pin,
+        PICOPHP_LEDSTRIP_WS2812_FREQ
+    );
+
+    return true;
+}
+
+static void picophp_ledstrip_write_all(void) {
+    if (!picophp_ledstrip.inited) {
+        return;
+    }
+
+    for (uint i = 0; i < picophp_ledstrip.count; i++) {
+        uint32_t grb = picophp_ledstrip_grb_u32(
+            picophp_ledstrip.r[i],
+            picophp_ledstrip.g[i],
+            picophp_ledstrip.b[i]
+        );
+
+        picophp_ledstrip_put_pixel(grb);
+    }
+
+    /*
+     * WS2812 latch/reset period.
+     * 80us is conservative.
+     */
+    sleep_us(80);
+}
+
 #endif
 
 #ifdef PICOPHP_USB_KEYBOARD
@@ -483,6 +613,12 @@ typedef enum {
     NATIVE_RGB_KEYPAD_LED_CLEAR = 39,
 
     NATIVE_SLEEP_US = 40,
+
+    NATIVE_LEDSTRIP_INIT = 41,
+    NATIVE_LEDSTRIP_SET = 42,
+    NATIVE_LEDSTRIP_SHOW = 43,
+    NATIVE_LEDSTRIP_CLEAR = 44,
+    NATIVE_LEDSTRIP_FILL = 45,
 } NativeId;
 
 #ifdef PICOPHP_ON_PICO
@@ -664,6 +800,230 @@ static bool adc_gpio_to_channel(int gpio, int *channel) {
 
 static bool pwm_gpio_valid(int gpio) {
     return gpio >= 0 && gpio <= 29;
+}
+
+static bool native_ledstrip_init(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    if (argc != 3) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!value_is_number(args[0]) ||
+        !value_is_number(args[1]) ||
+        !value_is_number(args[2])) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    int driver = value_as_int(args[0]);
+    int pin = value_as_int(args[1]);
+    int count = value_as_int(args[2]);
+
+    if (driver != PICOPHP_LEDSTRIP_DRIVER_WS2812) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    if (!picophp_gpio_pin_valid(pin)) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    if (count <= 0 || count > PICOPHP_LEDSTRIP_MAX_PIXELS) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    /*
+     * For now, do not re-init with a different pin/driver after init.
+     * This avoids double-adding the same PIO program.
+     */
+    if (picophp_ledstrip.inited) {
+        if (picophp_ledstrip.driver != driver ||
+            picophp_ledstrip.pin != (uint)pin ||
+            picophp_ledstrip.count != (uint)count) {
+            vm->status = VM_ERR_BAD_NATIVE;
+            return false;
+        }
+
+        ret->type = VAL_NULL;
+        return true;
+    }
+
+    picophp_ledstrip.driver = driver;
+    picophp_ledstrip.pin = (uint)pin;
+    picophp_ledstrip.count = (uint)count;
+
+    picophp_ledstrip_buffer_clear();
+
+    if (!picophp_ledstrip_program_start((uint)pin)) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    picophp_ledstrip.inited = true;
+
+    printf("[ledstrip_init] driver=%d pin=%d count=%d max=%d\n",
+        driver,
+        pin,
+        count,
+        PICOPHP_LEDSTRIP_MAX_PIXELS
+    );
+    fflush(stdout);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
+}
+
+static bool native_ledstrip_set(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    if (argc != 4) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!picophp_ledstrip.inited) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!value_is_number(args[0]) ||
+        !value_is_number(args[1]) ||
+        !value_is_number(args[2]) ||
+        !value_is_number(args[3])) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    int index = value_as_int(args[0]);
+    int r = value_as_int(args[1]);
+    int g = value_as_int(args[2]);
+    int b = value_as_int(args[3]);
+
+    if (index < 0 || index >= (int)picophp_ledstrip.count) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    picophp_ledstrip.r[index] = picophp_u8_clamp_from_int(r);
+    picophp_ledstrip.g[index] = picophp_u8_clamp_from_int(g);
+    picophp_ledstrip.b[index] = picophp_u8_clamp_from_int(b);
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
+}
+
+static bool native_ledstrip_show(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    (void)args;
+
+    if (argc != 0) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!picophp_ledstrip.inited) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    picophp_ledstrip_write_all();
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
+}
+
+static bool native_ledstrip_clear(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    (void)args;
+
+    if (argc != 0) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!picophp_ledstrip.inited) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    for (uint i = 0; i < picophp_ledstrip.count; i++) {
+        picophp_ledstrip.r[i] = 0;
+        picophp_ledstrip.g[i] = 0;
+        picophp_ledstrip.b[i] = 0;
+    }
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
+}
+
+static bool native_ledstrip_fill(Vm *vm, int argc, Value *args, Value *ret) {
+#ifdef PICOPHP_ON_PICO
+    if (argc != 3) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!picophp_ledstrip.inited) {
+        vm->status = VM_ERR_BAD_NATIVE;
+        return false;
+    }
+
+    if (!value_is_number(args[0]) ||
+        !value_is_number(args[1]) ||
+        !value_is_number(args[2])) {
+        vm->status = VM_ERR_TYPE;
+        return false;
+    }
+
+    uint8_t r = picophp_u8_clamp_from_int(value_as_int(args[0]));
+    uint8_t g = picophp_u8_clamp_from_int(value_as_int(args[1]));
+    uint8_t b = picophp_u8_clamp_from_int(value_as_int(args[2]));
+
+    for (uint i = 0; i < picophp_ledstrip.count; i++) {
+        picophp_ledstrip.r[i] = r;
+        picophp_ledstrip.g[i] = g;
+        picophp_ledstrip.b[i] = b;
+    }
+
+    ret->type = VAL_NULL;
+    return true;
+#else
+    (void)vm;
+    (void)argc;
+    (void)args;
+    (void)ret;
+    return false;
+#endif
 }
 
 static bool native_spi_init(Vm *vm, int argc, Value *args, Value *ret) {
@@ -2363,6 +2723,36 @@ static bool call_native(Vm *vm, uint8_t id, uint8_t argc) {
             }
             break;
 
+
+        case NATIVE_LEDSTRIP_INIT:
+            if (!native_ledstrip_init(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_LEDSTRIP_SET:
+            if (!native_ledstrip_set(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_LEDSTRIP_SHOW:
+            if (!native_ledstrip_show(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_LEDSTRIP_CLEAR:
+            if (!native_ledstrip_clear(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
+
+        case NATIVE_LEDSTRIP_FILL:
+            if (!native_ledstrip_fill(vm, argc, args, &ret)) {
+                return false;
+            }
+            break;
         default:
             vm->status = VM_ERR_BAD_NATIVE;
             return false;

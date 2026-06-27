@@ -1,0 +1,9 @@
+<?php
+
+const LEDSTRIP_WS2812 = 1;
+
+function ledstrip_begin_ws2812($pin, $count) {
+    ledstrip_init(LEDSTRIP_WS2812, $pin, $count);
+    ledstrip_clear();
+    ledstrip_show();
+}

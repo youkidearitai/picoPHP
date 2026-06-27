@@ -130,6 +130,12 @@ final class NativeId {
     public const NATIVE_RGB_KEYPAD_LED_SHOW = 38;
     public const NATIVE_RGB_KEYPAD_LED_CLEAR = 39;
     public const NATIVE_SLEEP_US = 40;
+
+    public const NATIVE_LEDSTRIP_INIT = 41;
+    public const NATIVE_LEDSTRIP_SET = 42;
+    public const NATIVE_LEDSTRIP_SHOW = 43;
+    public const NATIVE_LEDSTRIP_CLEAR = 44;
+    public const NATIVE_LEDSTRIP_FILL = 45;
 }
 
 const NATIVE_IDS = [
@@ -174,6 +180,11 @@ const NATIVE_IDS = [
     'rgb_keypad_led_show' => NativeId::NATIVE_RGB_KEYPAD_LED_SHOW,
     'rgb_keypad_led_clear' => NativeId::NATIVE_RGB_KEYPAD_LED_CLEAR,
     'sleep_us' => NativeId::NATIVE_SLEEP_US,
+    'ledstrip_init' => NativeId::NATIVE_LEDSTRIP_INIT,
+    'ledstrip_set' => NativeId::NATIVE_LEDSTRIP_SET,
+    'ledstrip_show' => NativeId::NATIVE_LEDSTRIP_SHOW,
+    'ledstrip_clear' => NativeId::NATIVE_LEDSTRIP_CLEAR,
+    'ledstrip_fill' => NativeId::NATIVE_LEDSTRIP_FILL,
 ];
 
 const DEFAULT_CONSTANTS = [
@@ -222,6 +233,12 @@ const NATIVE_NAMES = [
     38 => 'rgb_keypad_led_show',
     39 => 'rgb_keypad_led_clear',
     40 => 'sleep_us',
+
+    NativeId::NATIVE_LEDSTRIP_INIT => 'ledstrip_init',
+    NativeId::NATIVE_LEDSTRIP_SET => 'ledstrip_set',
+    NativeId::NATIVE_LEDSTRIP_SHOW => 'ledstrip_show',
+    NativeId::NATIVE_LEDSTRIP_CLEAR => 'ledstrip_clear',
+    NativeId::NATIVE_LEDSTRIP_FILL => 'ledstrip_fill',
 ];
 
 final class Token {
