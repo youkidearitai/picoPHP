@@ -1,5 +1,5 @@
 <?php
-require_once "lib/ws2812.pphp";
+require_once "../lib/ws2812.pphp";
 
 ws2812_begin(1, 1);
 
