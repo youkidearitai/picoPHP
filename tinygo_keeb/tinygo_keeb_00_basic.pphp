@@ -12,16 +12,60 @@ function black() {
     ws2812_show();
 }
 
-function light1($key1) {
-    $i = 0;
-    while($i < 12) {
-        if ($key1 == true) {
-            ws2812_set($i, 255, 255, 255);
-            $key1 = false;
-        }
-        $i = $i + 1;
+function light_row1($key1, $key2, $key3) {
+    if ($key1 == true) {
+        ws2812_set(0, 255, 255, 255);
     }
-    ws2812_show();
+
+    if ($key2 == true) {
+        ws2812_set(1, 255, 255, 255);
+    }
+
+    if ($key3 == true) {
+        ws2812_set(2, 255, 255, 255);
+    }
+}
+
+function light_row2($key1, $key2, $key3) {
+    if ($key1 == true) {
+        ws2812_set(3, 255, 255, 255);
+    }
+
+    if ($key2 == true) {
+        ws2812_set(4, 255, 255, 255);
+    }
+
+    if ($key3 == true) {
+        ws2812_set(5, 255, 255, 255);
+    }
+}
+
+function light_row3($key1, $key2, $key3) {
+    if ($key1 == true) {
+        ws2812_set(6, 255, 255, 255);
+    }
+
+    if ($key2 == true) {
+        ws2812_set(7, 255, 255, 255);
+    }
+
+    if ($key3 == true) {
+        ws2812_set(8, 255, 255, 255);
+    }
+}
+
+function light_row4($key1, $key2, $key3) {
+    if ($key1 == true) {
+        ws2812_set(9, 255, 255, 255);
+    }
+
+    if ($key2 == true) {
+        ws2812_set(10, 255, 255, 255);
+    }
+
+    if ($key3 == true) {
+        ws2812_set(11, 255, 255, 255);
+    }
 }
 
 // col pins
@@ -48,10 +92,6 @@ while (true) {
     $key10 = false;
     $key11 = false;
     $key12 = false;
-    $key13 = false;
-    $key14 = false;
-    $key15 = false;
-    $key16 = false;
 
     black();
     gpio_write(5, HIGH);
@@ -64,7 +104,88 @@ while (true) {
         print("sw1 pressed\n");
         $key1 = true;
     }
-    light1($key1);
+
+    if (gpio_read(10)) {
+        print("sw5 pressed\n");
+        $key5 = true;
+    }
+
+    if (gpio_read(11)) {
+        print("sw9 pressed\n");
+        $key9 = true;
+    }
+
+    light_row1($key1, $key5, $key9);
+    gpio_write(5, LOW);
+    gpio_write(6, HIGH);
+    gpio_write(7, LOW);
+    gpio_write(8, LOW);
+    sleep_ms(1);
+
+    if (gpio_read(9)) {
+        print("sw2 pressed\n");
+        $key2 = true;
+    }
+
+    if (gpio_read(10)) {
+        print("sw6 pressed\n");
+        $key6 = true;
+    }
+
+    if (gpio_read(11)) {
+        print("sw10 pressed\n");
+        $key10 = true;
+    }
+
+    light_row2($key2, $key6, $key10);
+
+    gpio_write(5, LOW);
+    gpio_write(6, LOW);
+    gpio_write(7, HIGH);
+    gpio_write(8, LOW);
+    sleep_ms(1);
+
+    if (gpio_read(9)) {
+        print("sw3 pressed\n");
+        $key3 = true;
+    }
+
+    if (gpio_read(10)) {
+        print("sw7 pressed\n");
+        $key7 = true;
+    }
+
+    if (gpio_read(11)) {
+        print("sw11 pressed\n");
+        $key11 = true;
+    }
+
+    light_row3($key3, $key7, $key11);
+
+    gpio_write(5, LOW);
+    gpio_write(6, LOW);
+    gpio_write(7, LOW);
+    gpio_write(8, HIGH);
+    sleep_ms(1);
+
+    if (gpio_read(9)) {
+        print("sw4 pressed\n");
+        $key4 = true;
+    }
+
+    if (gpio_read(10)) {
+        print("sw8 pressed\n");
+        $key8 = true;
+    }
+
+    if (gpio_read(11)) {
+        print("sw12 pressed\n");
+        $key12 = true;
+    }
+
+    light_row4($key4, $key8, $key12);
+
+    ws2812_show();
 
     sleep_ms(30);
 }
