@@ -619,6 +619,8 @@ typedef enum {
     NATIVE_LEDSTRIP_SHOW = 43,
     NATIVE_LEDSTRIP_CLEAR = 44,
     NATIVE_LEDSTRIP_FILL = 45,
+
+    NATIVE_GPIO_READ = 46,
 } NativeId;
 
 #ifdef PICOPHP_ON_PICO
@@ -2127,8 +2129,25 @@ static void native_sleep_ms(int32_t ms) {
 
 static void native_gpio_mode(int32_t pin, int32_t mode) {
 #ifdef PICOPHP_ON_PICO
+    bool pullup = false;
+    bool pulldown = false;
+
     gpio_init((uint)pin);
+    if (mode == -1) {
+        pullup = true;
+        mode = 0;
+    } else if (mode == 2) {
+        pulldown = true;
+        mode = 0;
+    }
+
     gpio_set_dir((uint)pin, mode ? GPIO_OUT : GPIO_IN);
+    if (pulldown) {
+        gpio_pull_down((uint)pin);
+    }
+    if (pullup) {
+        gpio_pull_up((uint)pin);
+    }
 #else
     printf("[gpio_mode pin=%ld mode=%ld]\n", (long)pin, (long)mode);
 #endif
@@ -2139,6 +2158,14 @@ static void native_gpio_write(int32_t pin, int32_t value) {
     gpio_put((uint)pin, value ? 1 : 0);
 #else
     printf("[gpio_write pin=%ld value=%ld]\n", (long)pin, (long)value);
+#endif
+}
+
+static bool native_gpio_read(int32_t pin) {
+#ifdef PICOPHP_ON_PICO
+    return gpio_get((uint)pin);
+#else
+    printf("[gpio_read pin=%ld value=%ld]\n", (long)pin, 0);
 #endif
 }
 
@@ -2495,6 +2522,13 @@ static bool call_native(Vm *vm, uint8_t id, uint8_t argc) {
         case NATIVE_GPIO_WRITE:
             if (argc != 2) goto bad_arity;
             native_gpio_write(value_as_int(args[0]), value_as_int(args[1]));
+            break;
+
+        case NATIVE_GPIO_READ:
+            if (argc != 1) goto bad_arity;
+            bool is_gpio_read = false;
+            is_gpio_read = native_gpio_read(value_as_int(args[0]));
+            ret = v_bool(is_gpio_read);
             break;
 
         case NATIVE_MILLIS:

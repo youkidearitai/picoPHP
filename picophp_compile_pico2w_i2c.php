@@ -136,6 +136,7 @@ final class NativeId {
     public const NATIVE_LEDSTRIP_SHOW = 43;
     public const NATIVE_LEDSTRIP_CLEAR = 44;
     public const NATIVE_LEDSTRIP_FILL = 45;
+    public const NATIVE_GPIO_READ = 46;
 }
 
 const NATIVE_IDS = [
@@ -185,6 +186,7 @@ const NATIVE_IDS = [
     'ledstrip_show' => NativeId::NATIVE_LEDSTRIP_SHOW,
     'ledstrip_clear' => NativeId::NATIVE_LEDSTRIP_CLEAR,
     'ledstrip_fill' => NativeId::NATIVE_LEDSTRIP_FILL,
+    'gpio_read' => NativeId::NATIVE_GPIO_READ,
 ];
 
 const DEFAULT_CONSTANTS = [
@@ -239,6 +241,8 @@ const NATIVE_NAMES = [
     NativeId::NATIVE_LEDSTRIP_SHOW => 'ledstrip_show',
     NativeId::NATIVE_LEDSTRIP_CLEAR => 'ledstrip_clear',
     NativeId::NATIVE_LEDSTRIP_FILL => 'ledstrip_fill',
+
+    NativeId::NATIVE_GPIO_READ => 'gpio_read',
 ];
 
 final class Token {

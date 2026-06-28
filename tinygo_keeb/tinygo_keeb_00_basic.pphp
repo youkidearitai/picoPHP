@@ -1,22 +1,70 @@
 <?php
 require_once "../lib/ws2812.pphp";
 
-ws2812_begin(1, 1);
+ws2812_begin(1, 12);
+
+function black() {
+    $i = 0;
+    while ($i < 12) {
+        ws2812_set($i, 0, 0, 0);
+        $i = $i + 1;
+    }
+    ws2812_show();
+}
+
+function light1($key1) {
+    $i = 0;
+    while($i < 12) {
+        if ($key1 == true) {
+            ws2812_set($i, 255, 255, 255);
+            $key1 = false;
+        }
+        $i = $i + 1;
+    }
+    ws2812_show();
+}
+
+// col pins
+gpio_mode(5, 1);
+gpio_mode(6, 1);
+gpio_mode(7, 1);
+gpio_mode(8, 1);
+
+// row pins
+gpio_mode(9, 2);
+gpio_mode(10, 2);
+gpio_mode(11, 2);
 
 while (true) {
-    ws2812_set(0, 255, 0, 0);
-    ws2812_show();
-    sleep_ms(300);
+    $key1 = false;
+    $key2 = false;
+    $key3 = false;
+    $key4 = false;
+    $key5 = false;
+    $key6 = false;
+    $key7 = false;
+    $key8 = false;
+    $key9 = false;
+    $key10 = false;
+    $key11 = false;
+    $key12 = false;
+    $key13 = false;
+    $key14 = false;
+    $key15 = false;
+    $key16 = false;
 
-    ws2812_set(0, 0, 255, 0);
-    ws2812_show();
-    sleep_ms(300);
+    black();
+    gpio_write(5, HIGH);
+    gpio_write(6, LOW);
+    gpio_write(7, LOW);
+    gpio_write(8, LOW);
+    sleep_ms(1);
 
-    ws2812_set(0, 0, 0, 255);
-    ws2812_show();
-    sleep_ms(300);
+    if (gpio_read(9)) {
+        print("sw1 pressed\n");
+        $key1 = true;
+    }
+    light1($key1);
 
-    ws2812_clear();
-    ws2812_show();
-    sleep_ms(300);
+    sleep_ms(30);
 }
